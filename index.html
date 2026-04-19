@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>קטלוג חלקי חילוף מזגנים</title>
+
+<!-- Firebase Compat SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+
+<!-- React + Babel + XLSX -->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;background:#f0f2f5;direction:rtl}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- 1) Initialize Firebase BEFORE React -->
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyA5SsSCkhQg1R5bi5FitJeB9uzrNm-1L8o",
+  authDomain: "helkey-hiluf.firebaseapp.com",
+  projectId: "helkey-hiluf",
+  storageBucket: "helkey-hiluf.firebasestorage.app",
+  messagingSenderId: "622794251696",
+  appId: "1:622794251696:web:aafcaf67b729d653de4a75"
+};
+firebase.initializeApp(firebaseConfig);
+window._db = firebase.firestore();
+window._st = firebase.storage();
+</script>
+
+<!-- 2) React App -->
+<script type="text/babel">
+const {useState, useEffect, useRef, useMemo} = React;
+const db = window._db;
+const st = window._st;
+
+/* ── CONSTANTS ─────────────────────────────────────────── */
+const gid = () => Math.random().toString(36).substr(2,9);
+
+const DCOLS = () => [
+  {id:'ref',    name:'מספר זיהוי'},
+  {id:'nameHe', name:'שם בעברית'},
+  {id:'nameEn', name:'Part Name'},
+  {id:'mfgPn',  name:'מק"ט יצרן'},
+  {id:'tadPn',  name:'מק"ט תדיראן'},
+];
+
+const DCATS = () => [
+  {id:gid(), name:'יחידה פנימית',   models:[]},
+  {id:gid(), name:'יחידה חיצונית', models:[]},
+  {id:gid(), name:'חימום מים',      models:[]},
+  {id:gid(), name:'בקרים',          models:[]},
+];
+
+const INIT = () => ({
+  pass: 'admin1234',
+  brands: [
+    {id:'gree', name:'GREE', color:'#1565c0', light:'#e3f2fd', categories:[
+      {id:'gi0', name:'יחידה פנימית', models:[
+        {id:'demo1', name:'GWH12ACC', synonyms:['GWH12ACC-K6DNA1A'], image:null, columns:DCOLS(), parts:[
+          {id:'dp1', values:{ref:'1', nameHe:'מנוע מאוורר',      nameEn:'Fan Motor',     mfgPn:'GM120023', tadPn:'TD-1001'}},
+          {id:'dp2', values:{ref:'2', nameHe:'לוח אלקטרוני',     nameEn:'Control Board', mfgPn:'CB340012', tadPn:'TD-1002'}},
+          {id:'dp3', values:{ref:'3', nameHe:'שסתום 4 כיוונים',  nameEn:'4-Way Valve',   mfgPn:'VL440089', tadPn:'TD-1003'}},
+        ]}
+      ]},
+      {id:'gi1', name:'יחידה חיצונית', models:[]},
+      {id:'gi2', name:'חימום מים',      models:[]},
+      {id:'gi3', name:'בקרים',          models:[]},
+    ]},
+    {id:'toshiba', name:'TOSHIBA', color:'#c62828', light:'#ffebee', categories:[
+      {id:'ti0', name:'יחידה פנימית',   models:[]},
+      {id:'ti1', name:'יחידה חיצונית', models:[]},
+      {id:'ti2', name:'חימום מים',      models:[]},
+      {id:'ti3', name:'בקרים',          models:[]},
+    ]},
+    {id:'prime', name:'PRIME', color:'#2e7d32', light:'#e8f5e9', categories:[
+      {id:'pi0', name:'יחידה פנימית',   models:[]},
+      {id:'pi1', name:'יחידה חיצונית', models:[]},
+      {id:'pi2', name:'חימום מים',      models:[]},
+      {id:'pi3', name:'בקרים',          models:[]},
+    ]},
+  ]
+});
+
+/* ── HELPERS ────────────────────────────────────────────── */
+const updBrands = (brands, bid, cid, mid, fn) =>
+  brands.map(b => b.id!==bid ? b : {
+    ...b, categories: b.categories.map(c => c.id!==cid ? c : {
+      ...c, models: c.models.map(m => m.id!==mid ? m : fn(m))
+    })
+  });
+
+/* ── STYLE ATOMS ────────────────────────────────────────── */
+const bB  = bg => ({background:bg, border:'none', color:'#fff', padding:'7px 11px', borderRadius:7, cursor:'pointer', fontSize:12, fontWeight:'bold', whiteSpace:'nowrap', flexShrink:0});
+const sB  = bg => ({background:bg, border:'none', color:'#fff', padding:'4px 10px', borderRadius:5, cursor:'pointer', fontSize:11, whiteSpace:'nowrap'});
+const BPr = bg => ({background:bg, border:'none', color:'#fff', padding:'10px 0', borderRadius:8, cursor:'pointer', fontWeight:'bold', fontSize:14});
+const BST = {background:'#eee', border:'none', color:'#333', padding:'10px 0', borderRadius:8, cursor:'pointer', fontSize:14};
+const INS = {width:'100%', padding:'10px 14px', borderRadius:8, border:'1px solid #ddd', fontSize:14, boxSizing:'border-box', textAlign:'right', color:'#333', outline:'none', display:'block'};
+
+/* ── MODAL ──────────────────────────────────────────────── */
+function Modal({children, onClose, wide}) {
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:800,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}
+      onClick={onClose}>
+      <div style={{background:'#fff',borderRadius:14,padding:24,width:'100%',maxWidth:wide?520:340,maxHeight:'90vh',overflowY:'auto',animation:'fadeIn .15s'}}
+        dir="rtl" onClick={e=>e.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   APP
+══════════════════════════════════════════════════════════ */
+function App() {
+  const [data,     setData]     = useState(null);
+  const [loaded,   setLoaded]   = useState(false);
+  const [saving,   setSaving]   = useState(''); // 'saving'|'saved'|'error'|''
+  const [sel,      setSel]      = useState(null);
+  const [admin,    setAdmin]    = useState(false);
+  const [pwdDlg,   setPwdDlg]   = useState(false);
+  const [pwdIn,    setPwdIn]    = useState('');
+  const [pwdErr,   setPwdErr]   = useState('');
+  const [query,    setQuery]    = useState('');
+  const [sidebar,  setSidebar]  = useState(true);
+  const [imgModal, setImgModal] = useState(null);
+  const [imgZoom,  setImgZoom]  = useState(1);
+  const [brandMgr, setBrandMgr] = useState(false);
+  const [chPwd,    setChPwd]    = useState(false);
+  const saveTimer  = useRef(null);
+  const firstLoad  = useRef(true);
+
+  /* ── LOAD from Firestore ── */
+  useEffect(() => {
+    db.collection('catalog').doc('main').get()
+      .then(doc => {
+        setData(doc.exists && doc.data().d ? doc.data().d : INIT());
+        setLoaded(true);
+      })
+      .catch(() => { setData(INIT()); setLoaded(true); });
+  }, []);
+
+  /* ── AUTO-SAVE to Firestore (debounced 1.5s) ── */
+  useEffect(() => {
+    if (!loaded || !data) return;
+    if (firstLoad.current) { firstLoad.current = false; return; }
+    setSaving('saving');
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await db.collection('catalog').doc('main').set({ d: data });
+        setSaving('saved');
+        setTimeout(() => setSaving(''), 2500);
+      } catch { setSaving('error'); }
+    }, 1500);
+  }, [data, loaded]);
+
+  /* ── DERIVED ── */
+  const brand = sel && data ? data.brands.find(b => b.id===sel.bid) : null;
+  const cat   = brand ? brand.categories.find(c => c.id===sel.cid) : null;
+  const model = cat   ? cat.models.find(m => m.id===sel.mid) : null;
+
+  const results = useMemo(() => {
+    if (!data) return [];
+    const q = query.trim().toLowerCase(); if (!q) return [];
+    const res = []; const seen = new Set();
+    data.brands.forEach(b => b.categories.forEach(c => c.models.forEach(m => {
+      const mh = m.name.toLowerCase().includes(q) || m.synonyms.some(s=>s.toLowerCase().includes(q));
+      const ph = m.parts.filter(p => Object.values(p.values).some(v=>String(v).toLowerCase().includes(q)));
+      if ((mh || ph.length) && !seen.has(m.id)) { seen.add(m.id); res.push({b,c,m,ph}); }
+    })));
+    return res;
+  }, [query, data]);
+
+  /* ── NAVIGATION ── */
+  const nav = (bid, cid, mid, hq='') => {
+    setSel({bid,cid,mid,hq}); setQuery('');
+    if (window.innerWidth < 700) setSidebar(false);
+  };
+
+  /* ── MUTATIONS ── */
+  const mut  = fn => setData(d => fn(d));
+  const mutM = (bid,cid,mid,fn) => mut(d => ({...d, brands: updBrands(d.brands,bid,cid,mid,fn)}));
+
+  /* ── LOGIN ── */
+  const tryLogin = () => {
+    if (pwdIn === data.pass) { setAdmin(true); setPwdDlg(false); setPwdIn(''); setPwdErr(''); }
+    else setPwdErr('סיסמה שגויה');
+  };
+
+  /* ── IMAGE UPLOAD to Firebase Storage ── */
+  const handleImgUpload = async (e, bid, cid, mid) => {
+    const f = e.target.files[0]; if (!f) return;
+    setSaving('saving');
+    try {
+      const ref = st.ref(`images/${mid}_${Date.now()}`);
+      await ref.put(f);
+      const url = await ref.getDownloadURL();
+      mutM(bid, cid, mid, m => ({...m, image: url}));
+    } catch(err) {
+      alert('שגיאה בהעלאת תמונה: ' + err.message);
+      setSaving('');
+    }
+  };
+
+  /* ── EXPORT ── */
+  const expXLS = () => {
+    if (!data) return;
+    const wb = XLSX.utils.book_new();
+    data.brands.forEach(b => b.categories.forEach(c => c.models.forEach(m => {
+      if (!m.parts.length) return;
+      const ws = XLSX.utils.aoa_to_sheet([
+        m.columns.map(cl => cl.name),
+        ...m.parts.map(p => m.columns.map(cl => p.values[cl.id]||''))
+      ]);
+      XLSX.utils.book_append_sheet(wb, ws, `${b.name}-${m.name}`.slice(0,31));
+    })));
+    XLSX.writeFile(wb, 'ac-parts.xlsx');
+  };
+  const expJSON = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
+    a.download = 'ac-backup.json'; a.click();
+  };
+  const impFile = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = ev => { try { setData(JSON.parse(ev.target.result)); setSel(null); } catch { alert('שגיאה בקובץ'); } };
+    r.readAsText(f); e.target.value = '';
+  };
+
+  /* ── LOADING SCREEN ── */
+  if (!loaded) return (
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:16,fontFamily:'Arial'}}>
+      <div style={{fontSize:52}}>🔧</div>
+      <div style={{fontSize:17,color:'#555'}}>מתחבר ל-Firebase...</div>
+      <div style={{width:40,height:40,border:'4px solid #e0e0e0',borderTop:'4px solid #1565c0',borderRadius:'50%',animation:'spin 0.9s linear infinite'}}/>
+    </div>
+  );
+
+  const hdrBg = brand?.color || '#37474f';
+
+  return (
+    <div dir="rtl" style={{fontFamily:'Arial,sans-serif',minHeight:'100vh',background:'#f0f2f5',display:'flex',flexDirection:'column',fontSize:14}}>
+
+      {/* ── HEADER ── */}
+      <header style={{background:hdrBg,color:'#fff',padding:'10px 12px',display:'flex',alignItems:'center',gap:8,
+        boxShadow:'0 2px 8px rgba(0,0,0,.25)',position:'sticky',top:0,zIndex:200,flexWrap:'wrap',transition:'background .3s'}}>
+
+        <button onClick={()=>setSidebar(v=>!v)} style={bB('rgba(255,255,255,.2)')}>☰</button>
+        <span style={{fontWeight:'bold',fontSize:15,flexShrink:0}}>🔧 חלקי חילוף מזגנים</span>
+
+        {/* Save indicator */}
+        {saving==='saving' && <span style={{fontSize:11,color:'rgba(255,255,255,.8)',flexShrink:0}}>💾 שומר...</span>}
+        {saving==='saved'  && <span style={{fontSize:11,color:'#a5d6a7',flexShrink:0}}>✓ נשמר בענן</span>}
+        {saving==='error'  && <span style={{fontSize:11,color:'#ef9a9a',flexShrink:0}}>⚠ שגיאת שמירה</span>}
+
+        {/* Search */}
+        <div style={{flex:'1 1 150px',position:'relative',minWidth:110}}>
+          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="🔍 חיפוש גלובלי..."
+            style={{width:'100%',padding:'7px 34px 7px 12px',borderRadius:20,border:'none',fontSize:13,outline:'none',color:'#333'}}/>
+          {query && <button onClick={()=>setQuery('')}
+            style={{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#999',fontSize:16}}>✕</button>}
+        </div>
+
+        <button onClick={()=>admin?setAdmin(false):setPwdDlg(true)}
+          style={{...bB(admin?'#f57c00':'rgba(255,255,255,.2)'),fontWeight:'bold'}}>
+          {admin?'🔓 עריכה':'🔒 כניסה'}
+        </button>
+        {admin && <button onClick={()=>setBrandMgr(true)} style={bB('rgba(255,255,255,.2)')}>⚙ מותגים</button>}
+        {admin && <button onClick={()=>setChPwd(true)}    style={bB('rgba(255,255,255,.2)')}>🔑 סיסמה</button>}
+        <button onClick={expXLS}  style={bB('rgba(255,255,255,.2)')}>📊 Excel</button>
+        <button onClick={expJSON} style={bB('rgba(255,255,255,.2)')}>💾 גיבוי</button>
+        <label  style={{...bB('rgba(255,255,255,.2)'),cursor:'pointer'}}>
+          📂 טעינה<input type="file" accept=".json" onChange={impFile} style={{display:'none'}}/>
+        </label>
+      </header>
+
+      {/* ── SEARCH DROPDOWN ── */}
+      {query && (
+        <div style={{position:'fixed',top:56,right:0,left:0,zIndex:300,background:'#fff',
+          boxShadow:'0 6px 20px rgba(0,0,0,.15)',maxHeight:'58vh',overflowY:'auto',animation:'fadeIn .1s'}}>
+          <div style={{padding:'8px 14px',borderBottom:'1px solid #eee',color:'#777',fontSize:12}}>
+            {results.length} תוצאות
+          </div>
+          {!results.length && <div style={{padding:24,textAlign:'center',color:'#bbb'}}>לא נמצאו תוצאות</div>}
+          {results.map((r,i) => (
+            <div key={i} onClick={()=>nav(r.b.id,r.c.id,r.m.id,query)}
+              style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}
+              onMouseEnter={e=>e.currentTarget.style.background='#f5f5f5'}
+              onMouseLeave={e=>e.currentTarget.style.background=''}>
+              <span style={{background:r.b.color,color:'#fff',padding:'2px 8px',borderRadius:4,fontSize:11,fontWeight:'bold'}}>{r.b.name}</span>
+              <span style={{fontWeight:'bold',color:'#333'}}>{r.m.name}</span>
+              <span style={{color:'#999',fontSize:11}}>{r.c.name}</span>
+              {r.ph.length>0 && <span style={{color:'#795548',fontSize:11,background:'#fff9c4',padding:'1px 7px',borderRadius:4}}>✦ {r.ph.length} שורות תואמות</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{display:'flex',flex:1,overflow:'hidden',height:'calc(100vh - 56px)'}}>
+
+        {/* ── SIDEBAR ── */}
+        <aside style={{width:sidebar?265:0,flexShrink:0,overflow:'hidden',transition:'width .25s',
+          background:'#fff',borderLeft:'1px solid #e0e0e0'}}>
+          <div style={{width:265,overflowY:'auto',height:'100%'}}>
+            {data.brands.map(b => (
+              <SidebarBrand key={b.id} brand={b} sel={sel} admin={admin} onNav={nav}
+                onAddModel={(cid,name) => {
+                  const nm = {id:gid(),name,synonyms:[],image:null,columns:DCOLS(),parts:[]};
+                  mut(d => ({...d, brands:d.brands.map(bb=>bb.id!==b.id?bb:{
+                    ...bb, categories:bb.categories.map(c=>c.id!==cid?c:{...c,models:[...c.models,nm]})
+                  })}));
+                }}
+                onDelModel={(cid,mid) => {
+                  if (!confirm('למחוק דגם זה?')) return;
+                  mut(d => ({...d, brands:d.brands.map(bb=>bb.id!==b.id?bb:{
+                    ...bb, categories:bb.categories.map(c=>c.id!==cid?c:{...c,models:c.models.filter(m=>m.id!==mid)})
+                  })}));
+                  if (sel?.mid===mid) setSel(null);
+                }}
+                onAddCat={name => mut(d => ({...d, brands:d.brands.map(bb=>bb.id!==b.id?bb:{
+                  ...bb, categories:[...bb.categories,{id:gid(),name,models:[]}]
+                })}))}
+                onEditCat={(cid,name) => mut(d => ({...d, brands:d.brands.map(bb=>bb.id!==b.id?bb:{
+                  ...bb, categories:bb.categories.map(c=>c.id!==cid?c:{...c,name})
+                })}))}
+                onDelCat={cid => {
+                  if (!confirm('למחוק קטגוריה זו?')) return;
+                  mut(d => ({...d, brands:d.brands.map(bb=>bb.id!==b.id?bb:{
+                    ...bb, categories:bb.categories.filter(c=>c.id!==cid)
+                  })}));
+                }}
+              />
+            ))}
+          </div>
+        </aside>
+
+        {/* ── MAIN ── */}
+        <main style={{flex:1,overflowY:'auto',padding:14}}>
+          {!model
+            ? <HomeScreen data={data} onNav={nav}/>
+            : <ModelView key={model.id}
+                brand={brand} cat={cat} model={model} admin={admin} hq={sel?.hq||''}
+                onUpdate={u => mutM(brand.id,cat.id,model.id,m=>({...m,...u}))}
+                onAddPart={() => mutM(brand.id,cat.id,model.id,m=>({...m,parts:[...m.parts,{id:gid(),values:Object.fromEntries(m.columns.map(c=>[c.id,'']))}]}))}
+                onDelPart={pid => mutM(brand.id,cat.id,model.id,m=>({...m,parts:m.parts.filter(p=>p.id!==pid)}))}
+                onCell={(pid,cid,v) => mutM(brand.id,cat.id,model.id,m=>({...m,parts:m.parts.map(p=>p.id!==pid?p:{...p,values:{...p.values,[cid]:v}})}))}
+                onColName={(cid,n) => mutM(brand.id,cat.id,model.id,m=>({...m,columns:m.columns.map(c=>c.id!==cid?c:{...c,name:n})}))}
+                onAddCol={() => mutM(brand.id,cat.id,model.id,m=>{const cid=gid();return{...m,columns:[...m.columns,{id:cid,name:'עמודה חדשה'}],parts:m.parts.map(p=>({...p,values:{...p.values,[cid]:''}}))}})}
+                onDelCol={cid => mutM(brand.id,cat.id,model.id,m=>({...m,columns:m.columns.filter(c=>c.id!==cid),parts:m.parts.map(p=>{const v={...p.values};delete v[cid];return{...p,values:v}})}))}
+                onPaste={rows => mutM(brand.id,cat.id,model.id,m=>({...m,parts:[...m.parts,...rows.map(r=>({id:gid(),values:Object.fromEntries(m.columns.map((c,i)=>[c.id,r[i]||'']))}))]}))}
+                onImgUpload={e => handleImgUpload(e, brand.id, cat.id, model.id)}
+                onImgUrl={url => mutM(brand.id,cat.id,model.id,m=>({...m,image:url}))}
+                onOpenImg={img => {setImgModal(img);setImgZoom(1);}}
+              />
+          }
+        </main>
+      </div>
+
+      {/* ── IMAGE ZOOM MODAL ── */}
+      {imgModal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.92)',zIndex:900,display:'flex',flexDirection:'column'}}
+          onClick={()=>setImgModal(null)}>
+          <div style={{display:'flex',justifyContent:'center',gap:8,padding:12,flexShrink:0}}
+            onClick={e=>e.stopPropagation()}>
+            {[['🔍+',()=>setImgZoom(z=>Math.min(z+.5,8))],['🔍−',()=>setImgZoom(z=>Math.max(z-.5,.5))],['↺',()=>setImgZoom(1)],['✕',()=>setImgModal(null)]].map(([l,f])=>(
+              <button key={l} onClick={f} style={{background:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:'pointer',fontSize:14,fontWeight:'bold'}}>{l}</button>
+            ))}
+            <span style={{color:'rgba(255,255,255,.6)',fontSize:12,alignSelf:'center'}}>{Math.round(imgZoom*100)}%</span>
+          </div>
+          <div style={{flex:1,overflow:'auto',display:'flex',justifyContent:'center',padding:16,alignItems:'flex-start'}}
+            onClick={e=>e.stopPropagation()}>
+            <img src={imgModal} alt="שרטוט"
+              style={{transform:`scale(${imgZoom})`,transformOrigin:'top center',transition:'transform .2s',maxWidth:imgZoom<=1?'100%':'none'}}/>
+          </div>
+        </div>
+      )}
+
+      {/* ── LOGIN MODAL ── */}
+      {pwdDlg && (
+        <Modal onClose={()=>{setPwdDlg(false);setPwdIn('');setPwdErr('');}}>
+          <div style={{textAlign:'center'}}>
+            <div style={{fontSize:36,marginBottom:8}}>🔐</div>
+            <div style={{fontWeight:'bold',fontSize:17,marginBottom:16}}>כניסת מנהל</div>
+            <input type="password" value={pwdIn} onChange={e=>setPwdIn(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&tryLogin()} placeholder="הזן סיסמה" autoFocus style={INS}/>
+            {pwdErr && <div style={{color:'red',fontSize:12,margin:'8px 0'}}>{pwdErr}</div>}
+            <div style={{display:'flex',gap:8,marginTop:12}}>
+              <button onClick={tryLogin} style={{flex:1,...BPr('#1565c0')}}>כניסה</button>
+              <button onClick={()=>{setPwdDlg(false);setPwdIn('');setPwdErr('');}} style={{flex:1,...BST}}>ביטול</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {chPwd    && <ChangePwd current={data.pass} onSave={p=>{mut(d=>({...d,pass:p}));setChPwd(false);alert('✅ הסיסמה שונתה');}}  onClose={()=>setChPwd(false)}/>}
+      {brandMgr && <BrandMgr  data={data}          onSave={brands=>{mut(d=>({...d,brands}));setBrandMgr(false);}} onClose={()=>setBrandMgr(false)}/>}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   HOME SCREEN
+══════════════════════════════════════════════════════════ */
+function HomeScreen({data,onNav}) {
+  const total = data.brands.reduce((s,b)=>s+b.categories.reduce((ss,c)=>ss+c.models.length,0),0);
+  return (
+    <div>
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+        <span style={{fontSize:40}}>❄️</span>
+        <div>
+          <div style={{fontWeight:'bold',fontSize:20,color:'#333'}}>קטלוג חלקי חילוף מזגנים</div>
+          <div style={{color:'#aaa',fontSize:13}}>{total} דגמים | {data.brands.length} מותגים</div>
+        </div>
+      </div>
+      {data.brands.map(b => {
+        const hasAny = b.categories.some(c=>c.models.length>0);
+        return (
+          <div key={b.id} style={{marginBottom:24}}>
+            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+              <div style={{background:b.color,color:'#fff',padding:'4px 16px',borderRadius:20,fontWeight:'bold',fontSize:15}}>{b.name}</div>
+              <div style={{height:2,flex:1,background:`linear-gradient(to left,transparent,${b.color}44)`}}/>
+            </div>
+            {!hasAny && <div style={{color:'#ccc',fontSize:13,paddingRight:8}}>אין דגמים עדיין</div>}
+            {b.categories.map(c => c.models.length>0 && (
+              <div key={c.id} style={{marginBottom:14}}>
+                <div style={{color:'#888',fontSize:11,fontWeight:'bold',marginBottom:8,paddingRight:4,letterSpacing:.5}}>{c.name}</div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:8}}>
+                  {c.models.map(m => (
+                    <div key={m.id} onClick={()=>onNav(b.id,c.id,m.id)}
+                      style={{background:'#fff',borderRadius:10,padding:'12px 14px',cursor:'pointer',
+                        boxShadow:'0 1px 4px rgba(0,0,0,.07)',borderRight:`4px solid ${b.color}`,transition:'all .15s'}}
+                      onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 4px 14px rgba(0,0,0,.13)';e.currentTarget.style.transform='translateY(-2px)';}}
+                      onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 4px rgba(0,0,0,.07)';e.currentTarget.style.transform='';}}>
+                      <div style={{fontWeight:'bold',color:'#222',fontSize:13,marginBottom:3}}>{m.name}</div>
+                      {m.synonyms.length>0 && <div style={{fontSize:10,color:'#bbb',marginBottom:4}}>{m.synonyms.join(' | ')}</div>}
+                      <div style={{fontSize:11,color:b.color,fontWeight:'bold'}}>{m.parts.length} חלקים</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   SIDEBAR BRAND
+══════════════════════════════════════════════════════════ */
+function SidebarBrand({brand,sel,admin,onNav,onAddModel,onDelModel,onAddCat,onEditCat,onDelCat}) {
+  const [open,       setOpen]       = useState(false);
+  const [openCats,   setOpenCats]   = useState({});
+  const [addingMod,  setAddingMod]  = useState(null);
+  const [newModName, setNewModName] = useState('');
+  const [editCat,    setEditCat]    = useState(null);
+  const [addingCat,  setAddingCat]  = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const modRef = useRef();
+
+  useEffect(()=>{
+    if (sel?.bid===brand.id) { setOpen(true); setOpenCats(p=>({...p,[sel.cid]:true})); }
+  },[sel?.bid,sel?.cid]);
+
+  const toggleCat = id => setOpenCats(p=>({...p,[id]:!p[id]}));
+  const doAddMod  = cid => { const n=newModName.trim(); if(!n)return; onAddModel(cid,n); setNewModName(''); setAddingMod(null); };
+  const startAdd  = cid => { setAddingMod(cid); setNewModName(''); setTimeout(()=>modRef.current?.focus(),50); };
+
+  return (
+    <div style={{borderBottom:'1px solid #eee'}}>
+      {/* Brand header */}
+      <div onClick={()=>setOpen(v=>!v)}
+        style={{padding:'11px 14px',background:brand.color,color:'#fff',display:'flex',alignItems:'center',cursor:'pointer',userSelect:'none',gap:6}}>
+        <span style={{flex:1,fontWeight:'bold',fontSize:14}}>{brand.name}</span>
+        <span style={{fontSize:11,opacity:.8}}>{open?'▲':'▼'}</span>
+      </div>
+
+      {open && <>
+        {brand.categories.map(c => (
+          <div key={c.id}>
+            {/* Category row */}
+            <div style={{display:'flex',alignItems:'center',background:'#f7f7f7',borderBottom:'1px solid #ebebeb',minHeight:36}}>
+              {editCat?.id===c.id && admin
+                ? <div style={{flex:1,display:'flex',gap:4,padding:'4px 8px'}}>
+                    <input value={editCat.name} autoFocus onChange={e=>setEditCat({id:c.id,name:e.target.value})}
+                      onKeyDown={e=>{if(e.key==='Enter'){onEditCat(c.id,editCat.name);setEditCat(null);}if(e.key==='Escape')setEditCat(null);}}
+                      style={{flex:1,border:'1px solid #ddd',borderRadius:4,padding:'3px 6px',fontSize:12,color:'#333'}}/>
+                    <button onClick={()=>{onEditCat(c.id,editCat.name);setEditCat(null);}} style={{background:brand.color,color:'#fff',border:'none',borderRadius:4,padding:'2px 8px',cursor:'pointer',fontSize:11}}>✓</button>
+                    <button onClick={()=>setEditCat(null)} style={{background:'#eee',border:'none',borderRadius:4,padding:'2px 6px',cursor:'pointer',fontSize:11}}>✕</button>
+                  </div>
+                : <div onClick={()=>toggleCat(c.id)}
+                    style={{flex:1,padding:'8px 14px 8px 20px',cursor:'pointer',color:'#555',fontSize:13,userSelect:'none',display:'flex',alignItems:'center'}}>
+                    <span style={{flex:1}}>{c.name}</span>
+                    <span style={{fontSize:10,color:'#aaa'}}>{openCats[c.id]?'▲':'▼'}</span>
+                  </div>
+              }
+              {admin && editCat?.id!==c.id && (
+                <div style={{display:'flex',flexShrink:0,paddingLeft:4}}>
+                  <button onClick={e=>{e.stopPropagation();startAdd(c.id);}} title="הוסף דגם"
+                    style={{background:'none',border:'none',color:brand.color,cursor:'pointer',fontSize:20,fontWeight:'bold',padding:'2px 6px',lineHeight:1}}>+</button>
+                  <button onClick={e=>{e.stopPropagation();setEditCat({id:c.id,name:c.name});}} title="שנה שם"
+                    style={{background:'none',border:'none',color:'#888',cursor:'pointer',fontSize:13,padding:'2px 4px'}}>✏</button>
+                  <button onClick={e=>{e.stopPropagation();onDelCat(c.id);}} title="מחק"
+                    style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13,padding:'2px 5px'}}>🗑</button>
+                </div>
+              )}
+            </div>
+
+            {/* Models */}
+            {openCats[c.id] && <>
+              {addingMod===c.id && (
+                <div style={{padding:'6px 10px',background:'#fafafa',display:'flex',gap:6,borderBottom:'1px solid #eee'}}>
+                  <input ref={modRef} value={newModName} onChange={e=>setNewModName(e.target.value)}
+                    onKeyDown={e=>{if(e.key==='Enter')doAddMod(c.id);if(e.key==='Escape'){setAddingMod(null);setNewModName('');}}}
+                    placeholder="שם הדגם..."
+                    style={{flex:1,border:'1px solid #ddd',borderRadius:4,padding:'5px 8px',fontSize:12,color:'#333'}}/>
+                  <button onClick={()=>doAddMod(c.id)} style={{background:brand.color,color:'#fff',border:'none',borderRadius:4,padding:'5px 10px',cursor:'pointer',fontSize:12}}>הוסף</button>
+                  <button onClick={()=>{setAddingMod(null);setNewModName('');}} style={{background:'#eee',border:'none',borderRadius:4,padding:'5px 8px',cursor:'pointer',fontSize:12}}>✕</button>
+                </div>
+              )}
+              {c.models.map(m => (
+                <div key={m.id} style={{display:'flex',alignItems:'center',borderBottom:'1px solid #f5f5f5'}}>
+                  <div onClick={()=>onNav(brand.id,c.id,m.id)}
+                    style={{flex:1,padding:'8px 14px 8px 28px',cursor:'pointer',fontSize:13,
+                      color:sel?.mid===m.id?brand.color:'#444',
+                      fontWeight:sel?.mid===m.id?'bold':'normal',
+                      background:sel?.mid===m.id?brand.light:'transparent',
+                      borderRight:sel?.mid===m.id?`3px solid ${brand.color}`:'3px solid transparent'}}>
+                    {m.name}
+                    {m.synonyms.length>0 && <div style={{fontSize:10,color:'#bbb',marginTop:2}}>{m.synonyms.join(' | ')}</div>}
+                  </div>
+                  {admin && <button onClick={()=>onDelModel(c.id,m.id)} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:14,padding:'0 10px'}}>🗑</button>}
+                </div>
+              ))}
+              {!c.models.length && <div style={{padding:'7px 28px',color:'#ccc',fontSize:12}}>אין דגמים</div>}
+            </>}
+          </div>
+        ))}
+
+        {/* Add category */}
+        {admin && (addingCat
+          ? <div style={{padding:'6px 10px',background:'#f0f0f0',display:'flex',gap:6}}>
+              <input value={newCatName} autoFocus onChange={e=>setNewCatName(e.target.value)}
+                onKeyDown={e=>{if(e.key==='Enter'&&newCatName.trim()){onAddCat(newCatName.trim());setNewCatName('');setAddingCat(false);}if(e.key==='Escape')setAddingCat(false);}}
+                placeholder="שם קטגוריה..." style={{flex:1,border:'1px solid #ddd',borderRadius:4,padding:'5px 8px',fontSize:12,color:'#333'}}/>
+              <button onClick={()=>{if(newCatName.trim()){onAddCat(newCatName.trim());setNewCatName('');setAddingCat(false);}}} style={{background:brand.color,color:'#fff',border:'none',borderRadius:4,padding:'5px 10px',cursor:'pointer',fontSize:12}}>הוסף</button>
+              <button onClick={()=>setAddingCat(false)} style={{background:'#eee',border:'none',borderRadius:4,padding:'5px 8px',cursor:'pointer',fontSize:12}}>✕</button>
+            </div>
+          : <button onClick={()=>setAddingCat(true)} style={{width:'100%',padding:'8px',background:'none',border:'none',borderTop:'1px dashed #ddd',color:brand.color,cursor:'pointer',fontSize:12,fontWeight:'bold'}}>+ הוסף קטגוריה</button>
+        )}
+      </>}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   MODEL VIEW
+══════════════════════════════════════════════════════════ */
+function ModelView({brand,cat,model,admin,hq,onUpdate,onAddPart,onDelPart,onCell,onColName,onAddCol,onDelCol,onPaste,onImgUpload,onImgUrl,onOpenImg}) {
+  const [synIn,     setSynIn]     = useState(model.synonyms.join(', '));
+  const [editSyn,   setEditSyn]   = useState(false);
+  const [imgUrl,    setImgUrl]    = useState('');
+  const [editUrl,   setEditUrl]   = useState(false);
+  const [filter,    setFilter]    = useState('');
+  const [showPaste, setShowPaste] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const firstHiRef = useRef(null);
+  const q = hq.trim().toLowerCase();
+
+  useEffect(()=>{
+    if (q && firstHiRef.current) setTimeout(()=>firstHiRef.current?.scrollIntoView({behavior:'smooth',block:'center'}),200);
+  },[q]);
+
+  const saveSyn   = () => { onUpdate({synonyms:synIn.split(',').map(s=>s.trim()).filter(Boolean)}); setEditSyn(false); };
+  const filtered  = filter ? model.parts.filter(p=>Object.values(p.values).some(v=>String(v).toLowerCase().includes(filter.toLowerCase()))) : model.parts;
+  const rowHi     = p => q && Object.values(p.values).some(v=>String(v).toLowerCase().includes(q));
+  const cellHi    = v => q && String(v).toLowerCase().includes(q);
+
+  const submitPaste = () => {
+    const rows = pasteText.trim().split('\n').map(r=>r.split('\t').map(c=>c.trim())).filter(r=>r.some(c=>c));
+    if (rows.length) { onPaste(rows); setPasteText(''); setShowPaste(false); }
+  };
+
+  let firstHiSet = false;
+
+  return (
+    <div style={{maxWidth:1100,margin:'0 auto'}}>
+
+      {/* Header card */}
+      <div style={{background:'#fff',borderRadius:12,padding:'14px 16px',marginBottom:12,boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:6}}>
+          <span style={{background:brand.color,color:'#fff',padding:'3px 10px',borderRadius:20,fontSize:12,fontWeight:'bold'}}>{brand.name}</span>
+          <span style={{color:'#999',fontSize:12}}>{cat.name}</span>
+          <span style={{fontSize:17,fontWeight:'bold',color:'#222'}}>◈ {model.name}</span>
+          <span style={{marginRight:'auto',color:'#aaa',fontSize:11}}>{model.parts.length} חלקים</span>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',fontSize:12}}>
+          <span style={{color:'#999'}}>שמות נרדפים:</span>
+          {!editSyn
+            ? <><span style={{color:'#555'}}>{model.synonyms.length?model.synonyms.join(' | '):'—'}</span>
+                {admin && <button onClick={()=>setEditSyn(true)} style={sB(brand.color)}>✏ עריכה</button>}</>
+            : <><input value={synIn} onChange={e=>setSynIn(e.target.value)} placeholder="שם1, שם2"
+                style={{border:'1px solid #ddd',borderRadius:4,padding:'3px 8px',fontSize:12,width:200,color:'#333'}}/>
+               <button onClick={saveSyn} style={sB('#4caf50')}>✓ שמור</button>
+               <button onClick={()=>setEditSyn(false)} style={sB('#9e9e9e')}>ביטול</button></>
+          }
+        </div>
+      </div>
+
+      {/* Drawing */}
+      <div style={{background:'#fff',borderRadius:12,padding:'14px 16px',marginBottom:12,boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,flexWrap:'wrap'}}>
+          <span style={{fontWeight:'bold',fontSize:14}}>📐 שרטוט טכני</span>
+          {admin && <>
+            <label style={{...sB(brand.color),cursor:'pointer'}}>📁 העלה לענן<input type="file" accept="image/*" onChange={onImgUpload} style={{display:'none'}}/></label>
+            <button onClick={()=>setEditUrl(v=>!v)} style={sB('#607d8b')}>🔗 URL</button>
+            {model.image && <button onClick={()=>onUpdate({image:null})} style={sB('#e53935')}>🗑 הסר</button>}
+          </>}
+        </div>
+        {editUrl && admin && (
+          <div style={{display:'flex',gap:8,marginBottom:10}}>
+            <input value={imgUrl} onChange={e=>setImgUrl(e.target.value)} placeholder="https://..."
+              style={{flex:1,border:'1px solid #ddd',borderRadius:6,padding:'7px 10px',fontSize:13,color:'#333'}}/>
+            <button onClick={()=>{onImgUrl(imgUrl);setEditUrl(false);}} style={{background:brand.color,color:'#fff',border:'none',borderRadius:6,padding:'7px 14px',cursor:'pointer'}}>שמור</button>
+          </div>
+        )}
+        {model.image
+          ? <div style={{textAlign:'center'}}>
+              <img src={model.image} alt="שרטוט" onClick={()=>onOpenImg(model.image)}
+                style={{maxWidth:'100%',maxHeight:300,borderRadius:8,border:'2px solid #e0e0e0',cursor:'zoom-in',objectFit:'contain'}}/>
+              <div style={{color:'#aaa',fontSize:11,marginTop:4}}>לחץ להגדלה עם זום</div>
+            </div>
+          : <div style={{textAlign:'center',padding:28,background:'#fafafa',borderRadius:8,border:'2px dashed #e0e0e0',color:'#ccc',fontSize:13}}>
+              {admin?'העלה שרטוט טכני — יישמר ב-Firebase Storage':'אין שרטוט'}
+            </div>
+        }
+      </div>
+
+      {/* Parts */}
+      <div style={{background:'#fff',borderRadius:12,padding:'14px 16px',boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+          <span style={{fontWeight:'bold',fontSize:14}}>🔩 רשימת חלקים</span>
+          <input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="סנן..."
+            style={{border:'1px solid #e0e0e0',borderRadius:16,padding:'5px 12px',fontSize:12,outline:'none',width:120,color:'#333'}}/>
+          {admin && <>
+            <button onClick={onAddPart} style={{...sB(brand.color),fontWeight:'bold'}}>+ שורה</button>
+            <button onClick={onAddCol}  style={sB('#607d8b')}>+ עמודה</button>
+            <button onClick={()=>setShowPaste(v=>!v)} style={sB('#e65100')}>📋 הדבק מאקסל</button>
+          </>}
+          <span style={{marginRight:'auto',color:'#aaa',fontSize:11}}>{filtered.length}/{model.parts.length}</span>
+        </div>
+
+        {/* Paste from Excel */}
+        {showPaste && admin && (
+          <div style={{background:'#fff8e1',border:'1px solid #ffcc02',borderRadius:8,padding:12,marginBottom:12}}>
+            <div style={{fontSize:12,color:'#795548',marginBottom:4,fontWeight:'bold'}}>
+              📋 סדר עמודות: {model.columns.map(c=>c.name).join(' ➔ ')}
+            </div>
+            <div style={{fontSize:11,color:'#aaa',marginBottom:8}}>בחר שורות באקסל → Ctrl+C → לחץ בתיבה → Ctrl+V</div>
+            <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder="הדבק כאן..."
+              rows={5} style={{width:'100%',border:'1px solid #ddd',borderRadius:6,padding:'8px 10px',fontSize:12,
+                fontFamily:'monospace',resize:'vertical',boxSizing:'border-box',direction:'ltr',color:'#333'}}/>
+            {pasteText.trim() && <div style={{fontSize:11,color:'#888',margin:'4px 0'}}>
+              {pasteText.trim().split('\n').filter(r=>r.trim()).length} שורות זוהו
+            </div>}
+            <div style={{display:'flex',gap:8,marginTop:8}}>
+              <button onClick={submitPaste} style={{...sB('#4caf50'),padding:'8px 20px',fontSize:13}}>✓ ייבא</button>
+              <button onClick={()=>{setPasteText('');setShowPaste(false);}} style={{...sB('#9e9e9e'),padding:'8px 16px',fontSize:13}}>ביטול</button>
+            </div>
+          </div>
+        )}
+
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:360}}>
+            <thead>
+              <tr style={{background:brand.light}}>
+                {model.columns.map(col => (
+                  <th key={col.id} style={{padding:'9px 10px',textAlign:'right',color:'#333',fontWeight:'bold',
+                    borderBottom:`2px solid ${brand.color}`,whiteSpace:'nowrap'}}>
+                    {admin
+                      ? <div style={{display:'flex',alignItems:'center',gap:4}}>
+                          <input value={col.name} onChange={e=>onColName(col.id,e.target.value)}
+                            style={{border:'1px dashed #ccc',borderRadius:3,padding:'2px 6px',fontSize:12,fontWeight:'bold',
+                              width:'100%',minWidth:55,background:'transparent',color:'#333'}}/>
+                          {model.columns.length>1 && <button onClick={()=>onDelCol(col.id)}
+                            style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:16,padding:0,lineHeight:1}}>×</button>}
+                        </div>
+                      : col.name}
+                  </th>
+                ))}
+                {admin && <th style={{width:30}}/>}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((p,i) => {
+                const hi = rowHi(p);
+                let ref = null;
+                if (hi && !firstHiSet) { firstHiSet=true; ref=firstHiRef; }
+                return (
+                  <tr key={p.id} ref={ref}
+                    style={{background:hi?'#fff9c4':i%2?'#fafafa':'#fff',transition:'background .2s'}}
+                    onMouseEnter={e=>{if(!hi)e.currentTarget.style.background=brand.light;}}
+                    onMouseLeave={e=>{if(!hi)e.currentTarget.style.background=i%2?'#fafafa':'#fff';}}>
+                    {model.columns.map(col => {
+                      const v = p.values[col.id]||'';
+                      return (
+                        <td key={col.id} style={{padding:'7px 10px',borderBottom:'1px solid #f0f0f0',
+                          background:cellHi(v)?'#ffeb3b55':undefined}}>
+                          {admin
+                            ? <input value={v} onChange={e=>onCell(p.id,col.id,e.target.value)}
+                                style={{border:'none',borderBottom:'1px solid #e8e8e8',width:'100%',minWidth:50,
+                                  padding:'2px 4px',fontSize:13,background:'transparent',outline:'none',color:'#333'}}/>
+                            : <span>{v}</span>}
+                        </td>
+                      );
+                    })}
+                    {admin && <td style={{padding:'7px 4px',textAlign:'center'}}>
+                      <button onClick={()=>onDelPart(p.id)} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:15}}>🗑</button>
+                    </td>}
+                  </tr>
+                );
+              })}
+              {!filtered.length && (
+                <tr><td colSpan={model.columns.length+(admin?1:0)} style={{padding:24,textAlign:'center',color:'#ccc'}}>
+                  {admin?'לחץ "+ שורה" להוספת חלק':'אין חלקים'}
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   BRAND MANAGER
+══════════════════════════════════════════════════════════ */
+function BrandMgr({data,onClose,onSave}) {
+  const [brands,setBrands] = useState(JSON.parse(JSON.stringify(data.brands)));
+  const add = () => setBrands(b=>[...b,{id:gid(),name:'מותג חדש',color:'#607d8b',light:'#eceff1',categories:DCATS()}]);
+  const upd = (id,k,v) => setBrands(b=>b.map(x=>x.id!==id?x:{...x,[k]:v}));
+  const del = id => { if(confirm('למחוק מותג זה?')) setBrands(b=>b.filter(x=>x.id!==id)); };
+  return (
+    <Modal onClose={onClose} wide>
+      <div style={{fontWeight:'bold',fontSize:17,marginBottom:16}}>⚙ ניהול מותגים</div>
+      <div style={{maxHeight:'50vh',overflowY:'auto',marginBottom:12}}>
+        {brands.map(b => (
+          <div key={b.id} style={{border:'1px solid #e0e0e0',borderRadius:10,padding:12,marginBottom:10,borderRight:`5px solid ${b.color}`}}>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+              <input value={b.name} onChange={e=>upd(b.id,'name',e.target.value)}
+                style={{border:'1px solid #ddd',borderRadius:6,padding:'6px 10px',fontSize:14,fontWeight:'bold',flex:'1 1 100px',color:'#333'}}/>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <label style={{fontSize:12,color:'#777'}}>צבע:</label>
+                <input type="color" value={b.color}
+                  onChange={e=>{const c=e.target.value;upd(b.id,'color',c);upd(b.id,'light',c+'22');}}
+                  style={{border:'none',borderRadius:4,height:34,width:44,cursor:'pointer'}}/>
+              </div>
+              <button onClick={()=>del(b.id)} style={{background:'none',border:'1px solid #e53935',color:'#e53935',borderRadius:6,padding:'6px 12px',cursor:'pointer',fontSize:12}}>מחק</button>
+            </div>
+            <div style={{fontSize:11,color:'#aaa',marginTop:6}}>
+              {b.categories.reduce((s,c)=>s+c.models.length,0)} דגמים | {b.categories.length} קטגוריות
+            </div>
+          </div>
+        ))}
+      </div>
+      <button onClick={add} style={{width:'100%',padding:10,background:'#607d8b',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontWeight:'bold',marginBottom:12}}>+ הוסף מותג</button>
+      <div style={{display:'flex',gap:8}}>
+        <button onClick={()=>onSave(brands)} style={{flex:1,...BPr('#1565c0')}}>✓ שמור</button>
+        <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   CHANGE PASSWORD
+══════════════════════════════════════════════════════════ */
+function ChangePwd({current,onSave,onClose}) {
+  const [cur,setCur]=useState('');
+  const [nw, setNw] =useState('');
+  const [cf, setCf] =useState('');
+  const [err,setErr]=useState('');
+  const submit = () => {
+    if (cur!==current) { setErr('הסיסמה הנוכחית שגויה'); return; }
+    if (nw.length<4)   { setErr('לפחות 4 תווים');         return; }
+    if (nw!==cf)       { setErr('הסיסמאות אינן תואמות');  return; }
+    onSave(nw);
+  };
+  return (
+    <Modal onClose={onClose}>
+      <div style={{fontWeight:'bold',fontSize:16,marginBottom:16}}>🔑 שינוי סיסמת מנהל</div>
+      {[['סיסמה נוכחית',cur,setCur],['סיסמה חדשה',nw,setNw],['אימות',cf,setCf]].map(([l,v,s])=>(
+        <div key={l} style={{marginBottom:10}}>
+          <div style={{fontSize:12,color:'#777',marginBottom:4}}>{l}</div>
+          <input type="password" value={v} onChange={e=>s(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} style={INS}/>
+        </div>
+      ))}
+      {err && <div style={{color:'red',fontSize:12,marginBottom:8}}>{err}</div>}
+      <div style={{display:'flex',gap:8,marginTop:12}}>
+        <button onClick={submit} style={{flex:1,...BPr('#1565c0')}}>שמור</button>
+        <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ── RENDER ── */
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
