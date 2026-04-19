@@ -51,14 +51,6 @@ const DCATS=()=>[
   {id:gid(),name:'חימום מים',models:[]},
   {id:gid(),name:'בקרים',models:[]},
 ];
-
-// migrate old image→images
-const migrateModel=m=>({
-  ...m,
-  images: m.images || (m.image ? [m.image] : []),
-  image: undefined
-});
-
 const INIT=()=>({
   pass:'admin1234',
   brands:[
@@ -67,7 +59,6 @@ const INIT=()=>({
         {id:'demo1',name:'GWH12ACC',synonyms:['GWH12ACC-K6DNA1A'],images:[],columns:DCOLS(),parts:[
           {id:'dp1',values:{ref:'1',nameHe:'מנוע מאוורר',nameEn:'Fan Motor',mfgPn:'GM120023',tadPn:'TD-1001'}},
           {id:'dp2',values:{ref:'2',nameHe:'לוח אלקטרוני',nameEn:'Control Board',mfgPn:'CB340012',tadPn:'TD-1002'}},
-          {id:'dp3',values:{ref:'3',nameHe:'שסתום 4 כיוונים',nameEn:'4-Way Valve',mfgPn:'VL440089',tadPn:'TD-1003'}},
         ]}
       ]},
       {id:'gi1',name:'יחידה חיצונית',models:[]},
@@ -108,6 +99,70 @@ function compressImage(file){
   });
 }
 
+// ══ FIREBASE SPLIT SAVE/LOAD ══
+// meta doc: brands structure (no parts, no images)
+// parts/{modelId}: {parts,images,columns,synonyms}
+async function fbLoad(){
+  const metaDoc=await db.collection('catalog').doc('meta').get();
+  if(!metaDoc.exists)return null;
+  const meta=metaDoc.data().d;
+  // collect all model IDs
+  const mids=[];
+  meta.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>mids.push(m.id))));
+  if(!mids.length)return meta;
+  // load parts in parallel (batches of 20 to avoid overload)
+  const chunks=[];for(let i=0;i<mids.length;i+=20)chunks.push(mids.slice(i,i+20));
+  const allDocs=[];
+  for(const chunk of chunks){
+    const docs=await Promise.all(chunk.map(id=>db.collection('parts').doc(id).get()));
+    allDocs.push(...docs);
+  }
+  const partsMap={};
+  allDocs.forEach(doc=>{if(doc.exists)partsMap[doc.id]=doc.data();});
+  // merge
+  meta.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
+    const pd=partsMap[m.id]||{};
+    m.parts=pd.parts||[];
+    m.images=pd.images||[];
+    m.columns=pd.columns||DCOLS();
+    m.synonyms=pd.synonyms||m.synonyms||[];
+  })));
+  return meta;
+}
+
+async function fbSave(data,changedMids){
+  // save meta (no parts/images — only structure)
+  const meta={
+    pass:data.pass,
+    brands:data.brands.map(b=>({
+      ...b,
+      categories:b.categories.map(c=>({
+        ...c,
+        models:c.models.map(m=>({id:m.id,name:m.name}))
+      }))
+    }))
+  };
+  await db.collection('catalog').doc('meta').set({d:meta});
+  // save changed model parts
+  const batch=db.batch();
+  let batchCount=0;
+  const midsToSave=changedMids||new Set(
+    data.brands.flatMap(b=>b.categories.flatMap(c=>c.models.map(m=>m.id)))
+  );
+  data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
+    if(!midsToSave.has(m.id))return;
+    batch.set(db.collection('parts').doc(m.id),{
+      parts:m.parts||[],
+      images:m.images||[],
+      columns:m.columns||DCOLS(),
+      synonyms:m.synonyms||[],
+    });
+    batchCount++;
+    if(batchCount>=490){throw new Error('יותר מדי שינויים בבת אחת — שמור שוב');}
+  })));
+  await batch.commit();
+}
+
 const updBrands=(brands,bid,cid,mid,fn)=>brands.map(b=>b.id!==bid?b:{
   ...b,categories:b.categories.map(c=>c.id!==cid?c:{
     ...c,models:c.models.map(m=>m.id!==mid?m:fn(m))
@@ -123,7 +178,7 @@ const INS={width:'100%',padding:'10px 14px',borderRadius:8,border:'1px solid #dd
 function Modal({children,onClose,wide,title}){
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:800,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
-      <div style={{background:'#fff',borderRadius:14,padding:24,width:'100%',maxWidth:wide?580:370,maxHeight:'92vh',overflowY:'auto',animation:'fadeIn .15s'}} dir="rtl" onClick={e=>e.stopPropagation()}>
+      <div style={{background:'#fff',borderRadius:14,padding:24,width:'100%',maxWidth:wide?600:380,maxHeight:'92vh',overflowY:'auto',animation:'fadeIn .15s'}} dir="rtl" onClick={e=>e.stopPropagation()}>
         {title&&<div style={{fontWeight:'bold',fontSize:17,marginBottom:16,borderBottom:'1px solid #eee',paddingBottom:12}}>{title}</div>}
         {children}
       </div>
@@ -136,6 +191,8 @@ function App(){
   const[data,setData]=useState(null);
   const[loaded,setLoaded]=useState(false);
   const[saving,setSaving]=useState('');
+  const[saveErr,setSaveErr]=useState('');
+  const[showErr,setShowErr]=useState(false);
   const[sel,setSel]=useState(null);
   const[admin,setAdmin]=useState(false);
   const[pwdDlg,setPwdDlg]=useState(false);
@@ -147,23 +204,20 @@ function App(){
   const[imgZoom,setImgZoom]=useState(1);
   const[brandMgr,setBrandMgr]=useState(false);
   const[chPwd,setChPwd]=useState(false);
+  const[showXlsImport,setShowXlsImport]=useState(false);
+  const[showBulkMove,setShowBulkMove]=useState(false);
   const saveTimer=useRef(null);
   const firstLoad=useRef(true);
+  const changedMids=useRef(new Set());
 
+  // ── LOAD ──
   useEffect(()=>{
-    db.collection('catalog').doc('main').get()
-      .then(doc=>{
-        if(doc.exists&&doc.data().d){
-          const d=doc.data().d;
-          // migrate: ensure all models have images[]
-          d.brands=d.brands.map(b=>({...b,categories:b.categories.map(c=>({...c,models:c.models.map(migrateModel)}))}));
-          setData(d);
-        } else setData(INIT());
-        setLoaded(true);
-      })
-      .catch(()=>{setData(INIT());setLoaded(true);});
+    fbLoad()
+      .then(d=>{setData(d||INIT());setLoaded(true);})
+      .catch(e=>{setSaveErr('שגיאת טעינה: '+e.message);setData(INIT());setLoaded(true);});
   },[]);
 
+  // ── AUTO-SAVE (debounced 2.5s) ──
   useEffect(()=>{
     if(!loaded||!data)return;
     if(firstLoad.current){firstLoad.current=false;return;}
@@ -171,37 +225,43 @@ function App(){
     clearTimeout(saveTimer.current);
     saveTimer.current=setTimeout(async()=>{
       try{
-        await db.collection('catalog').doc('main').set({d:data});
-        setSaving('saved');setTimeout(()=>setSaving(''),2500);
-      }catch(e){console.error(e);setSaving('error');}
-    },2000);
+        await fbSave(data,changedMids.current);
+        changedMids.current=new Set();
+        setSaving('saved');setSaveErr('');
+        setTimeout(()=>setSaving(''),3000);
+      }catch(e){
+        console.error(e);
+        setSaving('error');
+        setSaveErr(e.message||JSON.stringify(e));
+      }
+    },2500);
   },[data,loaded]);
 
   const brand=sel&&data?data.brands.find(b=>b.id===sel.bid):null;
   const cat=brand?brand.categories.find(c=>c.id===sel.cid):null;
   const model=cat?cat.models.find(m=>m.id===sel.mid):null;
 
-  // ── SEARCH: show matched synonym ──
   const results=useMemo(()=>{
     if(!data)return[];
     const q=query.trim().toLowerCase();if(!q)return[];
     const res=[];const seen=new Set();
     data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
-      const matchedSyn=m.synonyms.find(s=>s.toLowerCase().includes(q));
+      const matchedSyn=m.synonyms?.find(s=>s.toLowerCase().includes(q));
       const mh=m.name.toLowerCase().includes(q)||!!matchedSyn;
       const ph=m.parts.filter(p=>Object.values(p.values).some(v=>String(v).toLowerCase().includes(q)));
-      if((mh||ph.length)&&!seen.has(m.id)){
-        seen.add(m.id);
-        res.push({b,c,m,ph,matchedSyn:matchedSyn||null});
-      }
+      if((mh||ph.length)&&!seen.has(m.id)){seen.add(m.id);res.push({b,c,m,ph,matchedSyn:matchedSyn||null});}
     })));
     return res;
   },[query,data]);
 
   const nav=(bid,cid,mid,hq='')=>{setSel({bid,cid,mid,hq});setQuery('');if(window.innerWidth<700)setSidebar(false);};
   const goHome=()=>{setSel(null);setQuery('');};
+
   const mut=fn=>setData(d=>fn(d));
-  const mutM=(bid,cid,mid,fn)=>mut(d=>({...d,brands:updBrands(d.brands,bid,cid,mid,fn)}));
+  const mutM=(bid,cid,mid,fn)=>{
+    changedMids.current.add(mid);
+    mut(d=>({...d,brands:updBrands(d.brands,bid,cid,mid,fn)}));
+  };
 
   const tryLogin=()=>{
     if(pwdIn===data.pass){setAdmin(true);setPwdDlg(false);setPwdIn('');setPwdErr('');}
@@ -210,16 +270,14 @@ function App(){
 
   const handleImgUpload=async(e,bid,cid,mid)=>{
     const files=Array.from(e.target.files);if(!files.length)return;
-    setSaving('saving');
-    try{
-      const b64arr=await Promise.all(files.map(compressImage));
-      mutM(bid,cid,mid,m=>({...m,images:[...(m.images||[]),...b64arr]}));
-    }catch{alert('שגיאה בעיבוד התמונה');}
+    const b64arr=await Promise.all(files.map(compressImage));
+    mutM(bid,cid,mid,m=>({...m,images:[...(m.images||[]),...b64arr]}));
   };
 
+  // ── MOVE SINGLE MODEL ──
   const moveModel=(fromBid,fromCid,mid,toBid,toCid)=>{
+    let moved=null;
     mut(d=>{
-      let moved=null;
       const brands=d.brands.map(b=>{
         if(b.id!==fromBid)return b;
         return{...b,categories:b.categories.map(c=>{
@@ -233,39 +291,100 @@ function App(){
         ...b,categories:b.categories.map(c=>c.id!==toCid?c:{...c,models:[...c.models,moved]})
       })};
     });
+    changedMids.current.add(mid);
     setSel(s=>({...s,bid:toBid,cid:toCid}));
   };
 
+  // ── BULK MOVE MODELS ──
+  const bulkMoveModels=(selections,toBid,toCid)=>{
+    // selections: [{bid,cid,mid}]
+    mut(d=>{
+      let movedModels=[];
+      let brands=d.brands.map(b=>({
+        ...b,categories:b.categories.map(c=>({
+          ...c,models:c.models.filter(m=>{
+            const isSel=selections.some(s=>s.mid===m.id&&s.bid===b.id&&s.cid===c.id);
+            if(isSel)movedModels.push(m);
+            return !isSel;
+          })
+        }))
+      }));
+      brands=brands.map(b=>b.id!==toBid?b:{
+        ...b,categories:b.categories.map(c=>c.id!==toCid?c:{...c,models:[...c.models,...movedModels]})
+      });
+      return{...d,brands};
+    });
+    selections.forEach(s=>changedMids.current.add(s.mid));
+  };
+
   const duplicateModel=(bid,cid,mid)=>{
+    const orig=data.brands.find(b=>b.id===bid)?.categories.find(c=>c.id===cid)?.models.find(m=>m.id===mid);
+    if(!orig)return;
+    const newId=gid();
+    const dup={...JSON.parse(JSON.stringify(orig)),id:newId,name:orig.name+' (עותק)',synonyms:[]};
+    changedMids.current.add(newId);
     mut(d=>({...d,brands:d.brands.map(b=>b.id!==bid?b:{
-      ...b,categories:b.categories.map(c=>{
-        if(c.id!==cid)return c;
-        const orig=c.models.find(m=>m.id===mid);
-        if(!orig)return c;
-        const dup={...JSON.parse(JSON.stringify(orig)),id:gid(),name:orig.name+' (עותק)',synonyms:[]};
-        return{...c,models:[...c.models,dup]};
-      })
+      ...b,categories:b.categories.map(c=>c.id!==cid?c:{...c,models:[...c.models,dup]})
     })}));
   };
 
   const copyPartsFrom=(sb,sc,sm,db2,dc,dm)=>{
     const srcModel=data.brands.find(b=>b.id===sb)?.categories.find(c=>c.id===sc)?.models.find(m=>m.id===sm);
     if(!srcModel)return;
+    changedMids.current.add(dm);
     mutM(db2,dc,dm,m=>({...m,parts:[...m.parts,...srcModel.parts.map(p=>({...p,id:gid()}))]}));
   };
 
-  // ── EXPORT/IMPORT (admin only) ──
+  // ── IMPORT FROM EXCEL ──
+  const importFromXls=(rows,colMap,targetBid,targetCid,excludedModels)=>{
+    const grouped={};
+    rows.forEach(r=>{
+      const mn=String(r[colMap.model]||'').trim();if(!mn||excludedModels.has(mn))return;
+      if(!grouped[mn])grouped[mn]=[];
+      grouped[mn].push(r);
+    });
+    let totalParts=0;
+    mut(d=>{
+      const brands=d.brands.map(b=>{
+        if(b.id!==targetBid)return b;
+        return{...b,categories:b.categories.map(c=>{
+          if(c.id!==targetCid)return c;
+          let models=[...c.models];
+          Object.entries(grouped).forEach(([modelName,partRows])=>{
+            let m=models.find(x=>x.name===modelName);
+            const newId=m?m.id:gid();
+            if(!m){m={id:newId,name:modelName,synonyms:[],images:[],columns:DCOLS(),parts:[]};models.push(m);}
+            const newParts=partRows.map(r=>({id:gid(),values:{
+              ref:'',
+              nameHe:String(r[colMap.nameHe]||'').trim(),
+              nameEn:String(r[colMap.nameEn]||'').trim(),
+              mfgPn:String(r[colMap.mfgPn]||'').trim(),
+              tadPn:String(r[colMap.tadPn]||'').trim(),
+            }}));
+            totalParts+=newParts.length;
+            changedMids.current.add(newId);
+            models=models.map(x=>x.name===modelName?{...x,parts:[...x.parts,...newParts]}:x);
+          });
+          return{...c,models};
+        })};
+      });
+      return{...d,brands};
+    });
+    return{models:Object.keys(grouped).length,parts:totalParts};
+  };
+
+  // ── EXPORT/IMPORT JSON (admin only) ──
   const expXLS=()=>{
     if(!data)return;
     const wb=XLSX.utils.book_new();
-    const allRows=[['מותג','קטגוריה','דגם','מספר זיהוי','שם בעברית','Part Name','מק"ט יצרן','מק"ט תדיראן']];
+    const all=[['מותג','קטגוריה','דגם','מספר זיהוי','שם בעברית','Part Name','מק"ט יצרן','מק"ט תדיראן']];
     data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
       if(!m.parts.length)return;
       const ws=XLSX.utils.aoa_to_sheet([m.columns.map(cl=>cl.name),...m.parts.map(p=>m.columns.map(cl=>p.values[cl.id]||''))]);
       XLSX.utils.book_append_sheet(wb,ws,`${b.name}-${m.name}`.slice(0,31));
-      m.parts.forEach(p=>allRows.push([b.name,c.name,m.name,...m.columns.map(cl=>p.values[cl.id]||'')]));
+      m.parts.forEach(p=>all.push([b.name,c.name,m.name,...m.columns.map(cl=>p.values[cl.id]||'')]));
     })));
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(allRows),'כל הנתונים');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(all),'כל הנתונים');
     XLSX.writeFile(wb,'ac-parts.xlsx');
   };
   const expJSON=()=>{
@@ -276,54 +395,21 @@ function App(){
   const impFile=e=>{
     const f=e.target.files[0];if(!f)return;
     const r=new FileReader();
-    r.onload=ev=>{try{setData(JSON.parse(ev.target.result));setSel(null);alert('✅ נטען בהצלחה');}catch{alert('❌ שגיאה בקובץ');}};
+    r.onload=ev=>{
+      try{
+        const d=JSON.parse(ev.target.result);
+        // mark all models as changed
+        d.brands?.forEach(b=>b.categories?.forEach(c=>c.models?.forEach(m=>changedMids.current.add(m.id))));
+        setData(d);setSel(null);alert('✅ נטען בהצלחה');
+      }catch{alert('❌ שגיאה בקובץ');}
+    };
     r.readAsText(f);e.target.value='';
   };
 
   const openImgModal=(imgs,idx=0)=>{setImgModal({imgs,idx});setImgZoom(1);};
 
-  // ── IMPORT FROM EXCEL (smart, by model) ──
-  const[showXlsImport,setShowXlsImport]=useState(false);
-  const importFromXls=(rows,colMap,targetBid,targetCid)=>{
-    // colMap: {model,nameHe,tadPn,nameEn,mfgPn} → column indices
-    const grouped={};
-    rows.forEach(r=>{
-      const modelName=String(r[colMap.model]||'').trim();
-      if(!modelName)return;
-      if(!grouped[modelName])grouped[modelName]=[];
-      grouped[modelName].push(r);
-    });
-    mut(d=>{
-      const brands=d.brands.map(b=>{
-        if(b.id!==targetBid)return b;
-        return{...b,categories:b.categories.map(c=>{
-          if(c.id!==targetCid)return c;
-          let models=[...c.models];
-          Object.entries(grouped).forEach(([modelName,partRows])=>{
-            let m=models.find(x=>x.name===modelName);
-            if(!m){
-              m={id:gid(),name:modelName,synonyms:[],images:[],columns:DCOLS(),parts:[]};
-              models.push(m);
-            }
-            const newParts=partRows.map(r=>({id:gid(),values:{
-              ref:'',
-              nameHe:String(r[colMap.nameHe]||'').trim(),
-              nameEn:String(r[colMap.nameEn]||'').trim(),
-              mfgPn:String(r[colMap.mfgPn]||'').trim(),
-              tadPn:String(r[colMap.tadPn]||'').trim(),
-            }}));
-            models=models.map(x=>x.name===modelName?{...x,parts:[...x.parts,...newParts]}:x);
-          });
-          return{...c,models};
-        })};
-      });
-      return{...d,brands};
-    });
-    alert(`✅ יובאו ${Object.keys(grouped).length} דגמים עם ${rows.length} חלקים`);
-  };
-
   if(!loaded)return(
-    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:16,fontFamily:'Arial'}}>
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:16}}>
       <div style={{fontSize:52}}>🔧</div>
       <div style={{fontSize:17,color:'#555'}}>מתחבר ל-Firebase...</div>
       <div style={{width:40,height:40,border:'4px solid #e0e0e0',borderTop:'4px solid #1565c0',borderRadius:'50%',animation:'spin 0.9s linear infinite'}}/>
@@ -338,31 +424,36 @@ function App(){
       {/* ── HEADER ── */}
       <header style={{background:hdrBg,color:'#fff',padding:'10px 12px',display:'flex',alignItems:'center',gap:7,boxShadow:'0 2px 8px rgba(0,0,0,.25)',position:'sticky',top:0,zIndex:200,flexWrap:'wrap',transition:'background .3s'}}>
         <button onClick={()=>setSidebar(v=>!v)} style={bB('rgba(255,255,255,.2)')}>☰</button>
-        {/* HOME BUTTON */}
         <button onClick={goHome} title="מסך הבית" style={{...bB('rgba(255,255,255,.2)'),fontSize:16}}>🏠</button>
         <span style={{fontWeight:'bold',fontSize:15,flexShrink:0}}>🔧 חלקי חילוף מזגנים</span>
+
+        {/* Save indicator */}
         {saving==='saving'&&<span style={{fontSize:11,color:'rgba(255,255,255,.8)',flexShrink:0}}>💾 שומר...</span>}
-        {saving==='saved' &&<span style={{fontSize:11,color:'#a5d6a7',flexShrink:0}}>✓ נשמר</span>}
-        {saving==='error' &&<span style={{fontSize:11,color:'#ef9a9a',flexShrink:0}}>⚠ שגיאת שמירה</span>}
-        {/* SEARCH */}
+        {saving==='saved' &&<span style={{fontSize:11,color:'#a5d6a7',flexShrink:0}}>✓ נשמר בענן</span>}
+        {saving==='error' &&(
+          <button onClick={()=>setShowErr(true)}
+            style={{fontSize:11,color:'#fff',background:'#e53935',border:'none',borderRadius:5,padding:'3px 8px',cursor:'pointer',flexShrink:0}}>
+            ⚠ שגיאה — לחץ לפרטים
+          </button>
+        )}
+
+        {/* Search */}
         <div style={{flex:'1 1 140px',position:'relative',minWidth:100}}>
           <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="🔍 חיפוש גלובלי..."
             style={{width:'100%',padding:'7px 34px 7px 12px',borderRadius:20,border:'none',fontSize:13,outline:'none',color:'#333'}}/>
           {query&&<button onClick={()=>setQuery('')} style={{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#999',fontSize:16}}>✕</button>}
         </div>
-        {/* LOGIN */}
+
         <button onClick={()=>admin?setAdmin(false):setPwdDlg(true)} style={{...bB(admin?'#f57c00':'rgba(255,255,255,.2)'),fontWeight:'bold'}}>
           {admin?'🔓 עריכה':'🔒 כניסה'}
         </button>
-        {/* ADMIN ONLY BUTTONS */}
         {admin&&<button onClick={()=>setBrandMgr(true)} style={bB('rgba(255,255,255,.2)')}>⚙ מותגים</button>}
+        {admin&&<button onClick={()=>setShowBulkMove(true)} style={bB('rgba(255,255,255,.2)')}>🔀 העברה מרובה</button>}
         {admin&&<button onClick={()=>setChPwd(true)}    style={bB('rgba(255,255,255,.2)')}>🔑 סיסמה</button>}
         {admin&&<button onClick={expXLS}                style={bB('rgba(255,255,255,.2)')}>📊 Excel</button>}
         {admin&&<button onClick={expJSON}               style={bB('rgba(255,255,255,.2)')}>💾 גיבוי</button>}
-        {admin&&<label style={{...bB('rgba(255,255,255,.2)'),cursor:'pointer'}}>
-          📂 טעינה<input type="file" accept=".json" onChange={impFile} style={{display:'none'}}/>
-        </label>}
-        {admin&&<button onClick={()=>setShowXlsImport(true)} style={{...bB('#00796b')}}>📥 ייבא Excel</button>}
+        {admin&&<label  style={{...bB('rgba(255,255,255,.2)'),cursor:'pointer'}}>📂 טעינה<input type="file" accept=".json" onChange={impFile} style={{display:'none'}}/></label>}
+        {admin&&<button onClick={()=>setShowXlsImport(true)} style={bB('#00796b')}>📥 ייבא Excel</button>}
       </header>
 
       {/* ── SEARCH DROPDOWN ── */}
@@ -376,19 +467,14 @@ function App(){
               onMouseEnter={e=>e.currentTarget.style.background='#f5f5f5'}
               onMouseLeave={e=>e.currentTarget.style.background=''}>
               <span style={{background:r.b.color,color:'#fff',padding:'2px 8px',borderRadius:4,fontSize:11,fontWeight:'bold'}}>{r.b.name}</span>
-              {/* Show matched synonym prominently */}
-              <div style={{display:'flex',flexDirection:'column',flex:1,minWidth:0}}>
+              <div style={{display:'flex',flexDirection:'column',flex:1}}>
                 <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
                   <span style={{fontWeight:'bold',color:'#222',fontSize:13}}>{r.m.name}</span>
-                  {r.matchedSyn&&r.matchedSyn!==r.m.name&&(
-                    <span style={{background:'#e3f2fd',color:'#1565c0',padding:'1px 7px',borderRadius:4,fontSize:11,fontWeight:'bold'}}>
-                      ≡ {r.matchedSyn}
-                    </span>
-                  )}
+                  {r.matchedSyn&&<span style={{background:'#e3f2fd',color:'#1565c0',padding:'1px 7px',borderRadius:4,fontSize:11,fontWeight:'bold'}}>≡ {r.matchedSyn}</span>}
                 </div>
-                <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:2}}>
+                <div style={{display:'flex',gap:8,marginTop:2,flexWrap:'wrap'}}>
                   <span style={{color:'#999',fontSize:11}}>{r.b.name} · {r.c.name}</span>
-                  {r.ph.length>0&&<span style={{color:'#795548',fontSize:11,background:'#fff9c4',padding:'1px 6px',borderRadius:4}}>✦ {r.ph.length} שורות תואמות</span>}
+                  {r.ph.length>0&&<span style={{color:'#795548',fontSize:11,background:'#fff9c4',padding:'1px 6px',borderRadius:4}}>✦ {r.ph.length} שורות</span>}
                 </div>
               </div>
             </div>
@@ -403,11 +489,14 @@ function App(){
             {data.brands.map(b=>(
               <SidebarBrand key={b.id} brand={b} sel={sel} admin={admin} onNav={nav}
                 onAddModel={(cid,name)=>{
-                  const nm={id:gid(),name,synonyms:[],images:[],columns:DCOLS(),parts:[]};
+                  const newId=gid();
+                  changedMids.current.add(newId);
+                  const nm={id:newId,name,synonyms:[],images:[],columns:DCOLS(),parts:[]};
                   mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,models:[...c.models,nm]})})}));
                 }}
-                onDelModel={(cid,mid)=>{
+                onDelModel={async(cid,mid)=>{
                   if(!confirm('למחוק דגם זה?'))return;
+                  try{await db.collection('parts').doc(mid).delete();}catch{}
                   mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,models:c.models.filter(m=>m.id!==mid)})})}));
                   if(sel?.mid===mid)setSel(null);
                 }}
@@ -427,18 +516,14 @@ function App(){
           {!model
             ?<HomeScreen data={data} onNav={nav}/>
             :<ModelView key={model.id} brand={brand} cat={cat} model={model} admin={admin} hq={sel?.hq||''} data={data}
-              onUpdate={u=>mutM(brand.id,cat.id,model.id,m=>({...m,...u}))}
+              onUpdate={u=>{changedMids.current.add(model.id);mutM(brand.id,cat.id,model.id,m=>({...m,...u}));}}
               onAddPart={()=>mutM(brand.id,cat.id,model.id,m=>({...m,parts:[...m.parts,{id:gid(),values:Object.fromEntries(m.columns.map(c=>[c.id,'']))}]}))}
               onDelPart={pid=>mutM(brand.id,cat.id,model.id,m=>({...m,parts:m.parts.filter(p=>p.id!==pid)}))}
               onCell={(pid,cid,v)=>mutM(brand.id,cat.id,model.id,m=>({...m,parts:m.parts.map(p=>p.id!==pid?p:{...p,values:{...p.values,[cid]:v}})}))}
               onColName={(cid,n)=>mutM(brand.id,cat.id,model.id,m=>({...m,columns:m.columns.map(c=>c.id!==cid?c:{...c,name:n})}))}
               onMoveCol={(cid,dir)=>mutM(brand.id,cat.id,model.id,m=>{
-                const cols=[...m.columns];
-                const idx=cols.findIndex(c=>c.id===cid);
-                const newIdx=idx+dir;
-                if(newIdx<0||newIdx>=cols.length)return m;
-                [cols[idx],cols[newIdx]]=[cols[newIdx],cols[idx]];
-                return{...m,columns:cols};
+                const cols=[...m.columns];const idx=cols.findIndex(c=>c.id===cid);const ni=idx+dir;
+                if(ni<0||ni>=cols.length)return m;[cols[idx],cols[ni]]=[cols[ni],cols[idx]];return{...m,columns:cols};
               })}
               onAddCol={()=>mutM(brand.id,cat.id,model.id,m=>{const cid=gid();return{...m,columns:[...m.columns,{id:cid,name:'עמודה חדשה'}],parts:m.parts.map(p=>({...p,values:{...p.values,[cid]:''}}))}})}
               onDelCol={cid=>mutM(brand.id,cat.id,model.id,m=>({...m,columns:m.columns.filter(c=>c.id!==cid),parts:m.parts.map(p=>{const v={...p.values};delete v[cid];return{...p,values:v}})}))}
@@ -446,7 +531,7 @@ function App(){
               onImgUpload={e=>handleImgUpload(e,brand.id,cat.id,model.id)}
               onDelImg={idx=>mutM(brand.id,cat.id,model.id,m=>({...m,images:m.images.filter((_,i)=>i!==idx)}))}
               onImgUrl={url=>mutM(brand.id,cat.id,model.id,m=>({...m,images:[...(m.images||[]),url]}))}
-              onOpenImg={(imgs,idx)=>openImgModal(imgs,idx)}
+              onOpenImg={openImgModal}
               onMove={(toBid,toCid)=>moveModel(brand.id,cat.id,model.id,toBid,toCid)}
               onDuplicate={()=>duplicateModel(brand.id,cat.id,model.id)}
               onCopyPartsFrom={(sb,sc,sm)=>copyPartsFrom(sb,sc,sm,brand.id,cat.id,model.id)}
@@ -455,7 +540,7 @@ function App(){
         </main>
       </div>
 
-      {/* ── IMAGE ZOOM MODAL ── */}
+      {/* ── IMAGE MODAL ── */}
       {imgModal.imgs.length>0&&(
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.93)',zIndex:900,display:'flex',flexDirection:'column'}} onClick={()=>setImgModal({imgs:[],idx:0})}>
           <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:8,padding:12,flexShrink:0,flexWrap:'wrap'}} onClick={e=>e.stopPropagation()}>
@@ -473,6 +558,32 @@ function App(){
         </div>
       )}
 
+      {/* ── ERROR DETAILS MODAL ── */}
+      {showErr&&(
+        <Modal onClose={()=>setShowErr(false)} title="⚠ פרטי שגיאת שמירה">
+          <div style={{background:'#ffebee',borderRadius:8,padding:14,marginBottom:14,fontSize:12,fontFamily:'monospace',color:'#c62828',wordBreak:'break-all',maxHeight:200,overflowY:'auto'}}>
+            {saveErr||'שגיאה לא ידועה'}
+          </div>
+          <div style={{fontSize:13,color:'#555',marginBottom:16}}>
+            <div style={{fontWeight:'bold',marginBottom:8}}>סיבות נפוצות:</div>
+            <div>• חריגה ממגבלת 1MB — פתור אוטומטי בגרסה זו</div>
+            <div>• בעיית חיבור לאינטרנט</div>
+            <div>• חוקי Firestore חוסמים כתיבה</div>
+            <div style={{marginTop:8,color:'#1565c0'}}>בדוק Firebase Console → Firestore → Rules</div>
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={async()=>{
+              setSaving('saving');setShowErr(false);
+              try{
+                await fbSave(data,new Set(data.brands.flatMap(b=>b.categories.flatMap(c=>c.models.map(m=>m.id)))));
+                setSaving('saved');setSaveErr('');setTimeout(()=>setSaving(''),3000);
+              }catch(e){setSaving('error');setSaveErr(e.message);}
+            }} style={{flex:1,...BPr('#1565c0')}}>🔄 נסה לשמור שוב</button>
+            <button onClick={()=>setShowErr(false)} style={{flex:1,...BST}}>סגור</button>
+          </div>
+        </Modal>
+      )}
+
       {/* ── LOGIN ── */}
       {pwdDlg&&(
         <Modal onClose={()=>{setPwdDlg(false);setPwdIn('');setPwdErr('');}} title="🔐 כניסת מנהל">
@@ -485,9 +596,11 @@ function App(){
           </div>
         </Modal>
       )}
+
       {chPwd&&<ChangePwd current={data.pass} onSave={p=>{mut(d=>({...d,pass:p}));setChPwd(false);alert('✅ הסיסמה שונתה');}} onClose={()=>setChPwd(false)}/>}
       {brandMgr&&<BrandMgr data={data} onSave={brands=>{mut(d=>({...d,brands}));setBrandMgr(false);}} onClose={()=>setBrandMgr(false)}/>}
       {showXlsImport&&<XlsImportModal data={data} onImport={importFromXls} onClose={()=>setShowXlsImport(false)}/>}
+      {showBulkMove&&<BulkMoveModal data={data} onMove={bulkMoveModels} onClose={()=>setShowBulkMove(false)}/>}
     </div>
   );
 }
@@ -502,7 +615,7 @@ function HomeScreen({data,onNav}){
         <span style={{fontSize:44}}>❄️</span>
         <div>
           <div style={{fontWeight:'bold',fontSize:20,color:'#333'}}>קטלוג חלקי חילוף מזגנים</div>
-          <div style={{color:'#aaa',fontSize:13,marginTop:3}}>{data.brands.length} מותגים · {total} דגמים · {totalParts} חלקים</div>
+          <div style={{color:'#aaa',fontSize:13,marginTop:3}}>{data.brands.length} מותגים · {total} דגמים · {totalParts.toLocaleString()} חלקים</div>
         </div>
       </div>
       {data.brands.map(b=>{
@@ -524,7 +637,7 @@ function HomeScreen({data,onNav}){
                       onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 4px 14px rgba(0,0,0,.12)';e.currentTarget.style.transform='translateY(-2px)';}}
                       onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 4px rgba(0,0,0,.07)';e.currentTarget.style.transform='';}}>
                       <div style={{fontWeight:'bold',color:'#222',fontSize:13,marginBottom:3}}>{m.name}</div>
-                      {m.synonyms.length>0&&<div style={{fontSize:10,color:'#bbb',marginBottom:4,lineHeight:1.4}}>{m.synonyms.join(' | ')}</div>}
+                      {m.synonyms?.length>0&&<div style={{fontSize:10,color:'#bbb',marginBottom:4}}>{m.synonyms.join(' | ')}</div>}
                       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                         <span style={{fontSize:11,color:b.color,fontWeight:'bold'}}>{m.parts.length} חלקים</span>
                         {(m.images||[]).length>0&&<span style={{fontSize:10,color:'#aaa'}}>📐×{(m.images||[]).length}</span>}
@@ -551,15 +664,10 @@ function SidebarBrand({brand,sel,admin,onNav,onAddModel,onDelModel,onAddCat,onEd
   const[addingCat,setAddingCat]=useState(false);
   const[newCatName,setNewCatName]=useState('');
   const modRef=useRef();
-
-  useEffect(()=>{
-    if(sel?.bid===brand.id){setOpen(true);setOpenCats(p=>({...p,[sel.cid]:true}));}
-  },[sel?.bid,sel?.cid]);
-
+  useEffect(()=>{if(sel?.bid===brand.id){setOpen(true);setOpenCats(p=>({...p,[sel.cid]:true}));}},[sel?.bid,sel?.cid]);
   const toggleCat=id=>setOpenCats(p=>({...p,[id]:!p[id]}));
   const doAddMod=cid=>{const n=newModName.trim();if(!n)return;onAddModel(cid,n);setNewModName('');setAddingMod(null);};
   const startAdd=cid=>{setAddingMod(cid);setNewModName('');setTimeout(()=>modRef.current?.focus(),50);};
-
   return(
     <div style={{borderBottom:'1px solid #eee'}}>
       <div onClick={()=>setOpen(v=>!v)} style={{padding:'11px 14px',background:brand.color,color:'#fff',display:'flex',alignItems:'center',cursor:'pointer',userSelect:'none',gap:6}}>
@@ -579,15 +687,14 @@ function SidebarBrand({brand,sel,admin,onNav,onAddModel,onDelModel,onAddCat,onEd
                    <button onClick={()=>setEditCat(null)} style={{background:'#eee',border:'none',borderRadius:4,padding:'2px 6px',cursor:'pointer',fontSize:11}}>✕</button>
                  </div>
                 :<div onClick={()=>toggleCat(c.id)} style={{flex:1,padding:'8px 14px 8px 20px',cursor:'pointer',color:'#555',fontSize:13,userSelect:'none',display:'flex',alignItems:'center'}}>
-                   <span style={{flex:1}}>{c.name}</span>
-                   <span style={{fontSize:10,color:'#aaa'}}>{openCats[c.id]?'▲':'▼'}</span>
+                   <span style={{flex:1}}>{c.name}</span><span style={{fontSize:10,color:'#aaa'}}>{openCats[c.id]?'▲':'▼'}</span>
                  </div>
               }
               {admin&&editCat?.id!==c.id&&(
                 <div style={{display:'flex',flexShrink:0,paddingLeft:4}}>
-                  <button onClick={e=>{e.stopPropagation();startAdd(c.id);}} title="הוסף דגם" style={{background:'none',border:'none',color:brand.color,cursor:'pointer',fontSize:20,fontWeight:'bold',padding:'2px 6px',lineHeight:1}}>+</button>
-                  <button onClick={e=>{e.stopPropagation();setEditCat({id:c.id,name:c.name});}} title="שנה שם" style={{background:'none',border:'none',color:'#888',cursor:'pointer',fontSize:13,padding:'2px 4px'}}>✏</button>
-                  <button onClick={e=>{e.stopPropagation();onDelCat(c.id);}} title="מחק" style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13,padding:'2px 5px'}}>🗑</button>
+                  <button onClick={e=>{e.stopPropagation();startAdd(c.id);}} style={{background:'none',border:'none',color:brand.color,cursor:'pointer',fontSize:20,fontWeight:'bold',padding:'2px 6px',lineHeight:1}}>+</button>
+                  <button onClick={e=>{e.stopPropagation();setEditCat({id:c.id,name:c.name});}} style={{background:'none',border:'none',color:'#888',cursor:'pointer',fontSize:13,padding:'2px 4px'}}>✏</button>
+                  <button onClick={e=>{e.stopPropagation();onDelCat(c.id);}} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13,padding:'2px 5px'}}>🗑</button>
                 </div>
               )}
             </div>
@@ -609,7 +716,7 @@ function SidebarBrand({brand,sel,admin,onNav,onAddModel,onDelModel,onAddCat,onEd
                       background:sel?.mid===m.id?brand.light:'transparent',
                       borderRight:sel?.mid===m.id?`3px solid ${brand.color}`:'3px solid transparent'}}>
                     {m.name}
-                    {m.synonyms.length>0&&<div style={{fontSize:10,color:'#bbb',marginTop:2}}>{m.synonyms.join(' | ')}</div>}
+                    {m.synonyms?.length>0&&<div style={{fontSize:10,color:'#bbb',marginTop:2}}>{m.synonyms.join(' | ')}</div>}
                   </div>
                   {admin&&<button onClick={()=>onDelModel(c.id,m.id)} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:14,padding:'0 10px'}}>🗑</button>}
                 </div>
@@ -633,77 +740,256 @@ function SidebarBrand({brand,sel,admin,onNav,onAddModel,onDelModel,onAddCat,onEd
   );
 }
 
-// ══════════ MOVE MODEL ══════════
-function MoveModelModal({data,currentBid,currentCid,onMove,onClose}){
-  const[toBid,setToBid]=useState(currentBid);
+// ══════════ BULK MOVE MODAL ══════════
+function BulkMoveModal({data,onMove,onClose}){
+  const[selected,setSelected]=useState(new Set());
+  const[toBid,setToBid]=useState('');
   const[toCid,setToCid]=useState('');
-  const brand=data.brands.find(b=>b.id===toBid);
+  const[filterQ,setFilterQ]=useState('');
+  const targetBrand=data.brands.find(b=>b.id===toBid);
+
+  const allModels=[];
+  data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>allModels.push({bid:b.id,cid:c.id,mid:m.id,bname:b.name,cname:c.name,mname:m.name,color:b.color,light:b.light}))));
+  const filtered=filterQ?allModels.filter(x=>x.mname.toLowerCase().includes(filterQ.toLowerCase())||x.bname.toLowerCase().includes(filterQ.toLowerCase())||x.cname.toLowerCase().includes(filterQ.toLowerCase())):allModels;
+
+  const toggle=key=>setSelected(p=>{const n=new Set(p);n.has(key)?n.delete(key):n.add(key);return n;});
+  const selKey=(bid,cid,mid)=>`${bid}|${cid}|${mid}`;
+
+  const doMove=()=>{
+    if(!selected.size){alert('בחר דגמים');return;}
+    if(!toCid){alert('בחר יעד');return;}
+    const sels=[...selected].map(k=>{const[bid,cid,mid]=k.split('|');return{bid,cid,mid};});
+    onMove(sels,toBid,toCid);
+    alert(`✅ ${sels.length} דגמים הועברו`);
+    onClose();
+  };
+
   return(
-    <Modal onClose={onClose} title="🔀 העבר דגם לקטגוריה אחרת">
-      <div style={{marginBottom:12}}>
-        <div style={{fontSize:12,color:'#777',marginBottom:6}}>בחר מותג:</div>
-        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          {data.brands.map(b=>(
-            <button key={b.id} onClick={()=>{setToBid(b.id);setToCid('');}}
-              style={{padding:'7px 14px',borderRadius:20,border:`2px solid ${toBid===b.id?b.color:'#ddd'}`,background:toBid===b.id?b.color:'#fff',color:toBid===b.id?'#fff':'#555',cursor:'pointer',fontWeight:'bold',fontSize:13}}>
-              {b.name}
-            </button>
-          ))}
-        </div>
+    <Modal onClose={onClose} wide title="🔀 העברה מרובה של דגמים">
+      <div style={{display:'flex',gap:8,marginBottom:12}}>
+        <input value={filterQ} onChange={e=>setFilterQ(e.target.value)} placeholder="🔍 חפש דגם..."
+          style={{flex:1,border:'1px solid #ddd',borderRadius:8,padding:'7px 12px',fontSize:13,color:'#333',outline:'none'}}/>
+        <button onClick={()=>setSelected(new Set(filtered.map(x=>selKey(x.bid,x.cid,x.mid))))}
+          style={sB('#607d8b')}>בחר הכל</button>
+        <button onClick={()=>setSelected(new Set())} style={sB('#9e9e9e')}>נקה</button>
       </div>
-      {brand&&<div style={{marginBottom:16}}>
-        <div style={{fontSize:12,color:'#777',marginBottom:6}}>בחר קטגוריה:</div>
-        {brand.categories.map(c=>(
+      <div style={{maxHeight:'34vh',overflowY:'auto',border:'1px solid #eee',borderRadius:8,marginBottom:14}}>
+        {filtered.map(x=>{
+          const key=selKey(x.bid,x.cid,x.mid);
+          const isSel=selected.has(key);
+          return(
+            <div key={key} onClick={()=>toggle(key)}
+              style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',background:isSel?'#e3f2fd':'#fff'}}
+              onMouseEnter={e=>{if(!isSel)e.currentTarget.style.background='#f5f5f5';}}
+              onMouseLeave={e=>{if(!isSel)e.currentTarget.style.background='#fff';}}>
+              <input type="checkbox" checked={isSel} readOnly style={{width:16,height:16,flexShrink:0}}/>
+              <span style={{background:x.color,color:'#fff',padding:'2px 7px',borderRadius:4,fontSize:10,fontWeight:'bold',flexShrink:0}}>{x.bname}</span>
+              <span style={{fontWeight:'bold',color:'#333',flex:1,fontSize:13}}>{x.mname}</span>
+              <span style={{color:'#aaa',fontSize:11}}>{x.cname}</span>
+            </div>
+          );
+        })}
+        {!filtered.length&&<div style={{padding:20,textAlign:'center',color:'#bbb'}}>אין דגמים</div>}
+      </div>
+      {selected.size>0&&<div style={{background:'#e8f5e9',borderRadius:8,padding:'8px 14px',marginBottom:14,fontSize:13,color:'#2e7d32',fontWeight:'bold'}}>✓ {selected.size} דגמים נבחרו</div>}
+
+      <div style={{fontWeight:'bold',fontSize:13,marginBottom:10,color:'#333'}}>העבר אל:</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
+        {data.brands.map(b=>(
+          <button key={b.id} onClick={()=>{setToBid(b.id);setToCid('');}}
+            style={{padding:'7px 14px',borderRadius:20,border:`2px solid ${toBid===b.id?b.color:'#ddd'}`,background:toBid===b.id?b.color:'#fff',color:toBid===b.id?'#fff':'#555',cursor:'pointer',fontWeight:'bold',fontSize:13}}>
+            {b.name}
+          </button>
+        ))}
+      </div>
+      {targetBrand&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:14}}>
+        {targetBrand.categories.map(c=>(
           <div key={c.id} onClick={()=>setToCid(c.id)}
-            style={{padding:'10px 14px',borderRadius:8,border:`2px solid ${toCid===c.id?brand.color:'#eee'}`,marginBottom:6,cursor:'pointer',background:toCid===c.id?brand.light:'#fff',color:'#333',fontSize:13,fontWeight:toCid===c.id?'bold':'normal'}}>
+            style={{padding:'8px 12px',borderRadius:8,border:`2px solid ${toCid===c.id?targetBrand.color:'#eee'}`,cursor:'pointer',background:toCid===c.id?targetBrand.light:'#fff',fontSize:12,color:'#333',fontWeight:toCid===c.id?'bold':'normal'}}>
             {c.name}
-            {toBid===currentBid&&c.id===currentCid&&<span style={{fontSize:11,color:'#aaa',marginRight:8}}>(נוכחי)</span>}
           </div>
         ))}
       </div>}
       <div style={{display:'flex',gap:8}}>
-        <button onClick={()=>{if(!toCid){alert('בחר קטגוריה');return;}if(toBid===currentBid&&toCid===currentCid){alert('זו אותה קטגוריה');return;}onMove(toBid,toCid);onClose();}} style={{flex:1,...BPr('#1565c0')}}>✓ העבר</button>
+        <button onClick={doMove} style={{flex:1,...BPr('#1565c0')}}>✓ העבר {selected.size>0?`(${selected.size})`:''}  </button>
         <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
       </div>
     </Modal>
   );
 }
 
-// ══════════ COPY PARTS ══════════
-function CopyPartsModal({data,currentMid,onCopy,onClose}){
-  const[picked,setPicked]=useState(null);
-  const options=[];
-  data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
-    if(m.id!==currentMid&&m.parts.length>0)options.push({b,c,m});
-  })));
+// ══════════ EXCEL IMPORT MODAL ══════════
+function XlsImportModal({data,onImport,onClose}){
+  const[rows,setRows]=useState([]);
+  const[fileName,setFileName]=useState('');
+  const[toBid,setToBid]=useState(data.brands[0]?.id||'');
+  const[toCid,setToCid]=useState(data.brands[0]?.categories[0]?.id||'');
+  const[colMap,setColMap]=useState({model:0,nameHe:1,tadPn:2,nameEn:3,mfgPn:4});
+  const[step,setStep]=useState(1);
+  const[previewGroups,setPreviewGroups]=useState([]);
+  const[excluded,setExcluded]=useState(new Set());
+  const targetBrand=data.brands.find(b=>b.id===toBid);
+
+  const parseFile=e=>{
+    const f=e.target.files[0];if(!f)return;
+    setFileName(f.name);
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const wb=XLSX.read(ev.target.result,{type:'binary'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const all=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+      const firstCell=String(all[0]?.[0]||'').toLowerCase();
+      const dataRows=(firstCell.includes('דגם')||firstCell.includes('model')||firstCell.includes('שם'))?all.slice(1):all;
+      setRows(dataRows.filter(r=>r.some(c=>String(c).trim())));
+      setStep(2);
+    };
+    reader.readAsBinaryString(f);e.target.value='';
+  };
+
+  const buildPreview=()=>{
+    const grouped={};
+    rows.forEach(r=>{
+      const mn=String(r[colMap.model]||'').trim();if(!mn)return;
+      grouped[mn]=(grouped[mn]||0)+1;
+    });
+    setPreviewGroups(Object.entries(grouped));
+    setExcluded(new Set());
+    setStep(3);
+  };
+
+  const colLabel=i=>{
+    const sample=rows.slice(0,3).map(r=>String(r[i]||'').trim()).filter(Boolean).join(', ');
+    return `עמודה ${i+1}${sample?' ('+sample.slice(0,28)+')':''}`;
+  };
+  const maxCols=rows[0]?rows[0].length:6;
+  const colOptions=Array.from({length:maxCols},(_,i)=>i);
+  const fieldLabels=[
+    ['model','שם הדגם (עמודת מפתח)'],
+    ['nameHe','שם בעברית'],
+    ['tadPn','מק"ט תדיראן'],
+    ['nameEn','שם באנגלית'],
+    ['mfgPn','מק"ט יצרן'],
+  ];
+
+  const toggleExclude=name=>setExcluded(p=>{const n=new Set(p);n.has(name)?n.delete(name):n.add(name);return n;});
+  const includedCount=previewGroups.filter(([name])=>!excluded.has(name)).length;
+  const includedParts=previewGroups.filter(([name])=>!excluded.has(name)).reduce((s,[,c])=>s+c,0);
+
   return(
-    <Modal onClose={onClose} title="📋 העתק חלקים מדגם אחר" wide>
-      <div style={{maxHeight:'50vh',overflowY:'auto',marginBottom:12}}>
-        {!options.length&&<div style={{textAlign:'center',color:'#bbb',padding:24}}>אין דגמים אחרים עם חלקים</div>}
-        {options.map(({b,c,m})=>(
-          <div key={m.id} onClick={()=>setPicked({b,c,m})}
-            style={{padding:'10px 14px',borderRadius:8,border:`2px solid ${picked?.m.id===m.id?b.color:'#eee'}`,marginBottom:6,cursor:'pointer',background:picked?.m.id===m.id?b.light:'#fff',display:'flex',alignItems:'center',gap:10}}>
-            <span style={{background:b.color,color:'#fff',padding:'2px 8px',borderRadius:4,fontSize:11,fontWeight:'bold'}}>{b.name}</span>
-            <span style={{fontWeight:'bold',color:'#333',flex:1}}>{m.name}</span>
-            <span style={{color:'#999',fontSize:11}}>{c.name}</span>
-            <span style={{color:b.color,fontSize:11,fontWeight:'bold'}}>{m.parts.length} חלקים</span>
-          </div>
+    <Modal onClose={onClose} wide title="📥 ייבוא חלקים מ-Excel">
+      <div style={{display:'flex',gap:4,marginBottom:20}}>
+        {['1. העלאה','2. מיפוי עמודות','3. בחר דגמים'].map((s,i)=>(
+          <div key={i} style={{flex:1,textAlign:'center',padding:'6px 0',borderRadius:6,fontSize:12,fontWeight:'bold',
+            background:step===i+1?'#1565c0':step>i+1?'#4caf50':'#f0f0f0',color:step>=i+1?'#fff':'#aaa'}}>{s}</div>
         ))}
       </div>
-      {picked&&<div style={{background:'#e8f5e9',borderRadius:8,padding:'10px 14px',marginBottom:12,fontSize:13,color:'#2e7d32'}}>
-        ✓ <strong>{picked.m.name}</strong> — {picked.m.parts.length} חלקים יועתקו
-      </div>}
-      <div style={{display:'flex',gap:8}}>
-        <button onClick={()=>{if(!picked){alert('בחר דגם');return;}onCopy(picked.b.id,picked.c.id,picked.m.id);onClose();alert(`✅ ${picked.m.parts.length} חלקים הועתקו`);}} style={{flex:1,...BPr('#4caf50')}}>✓ העתק</button>
-        <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
-      </div>
+
+      {step===1&&(
+        <div>
+          <div style={{background:'#e3f2fd',borderRadius:10,padding:14,marginBottom:14,fontSize:13,color:'#1565c0'}}>
+            <div style={{fontWeight:'bold',marginBottom:6}}>📋 פורמט הקובץ:</div>
+            <div style={{fontFamily:'monospace',fontSize:11,background:'#fff',borderRadius:6,padding:8}}>דגם | שם בעברית | מק"ט תדיראן | שם באנגלית | מק"ט יצרן</div>
+            <div style={{marginTop:8,fontSize:11}}>ניתן לשנות את סדר העמודות בשלב הבא</div>
+          </div>
+          <label style={{display:'block',border:'2px dashed #1565c0',borderRadius:12,padding:'32px 20px',textAlign:'center',cursor:'pointer',background:'#f8fbff'}}>
+            <div style={{fontSize:40,marginBottom:8}}>📊</div>
+            <div style={{fontWeight:'bold',color:'#1565c0',fontSize:15,marginBottom:4}}>לחץ לבחירת קובץ Excel</div>
+            <div style={{color:'#aaa',fontSize:12}}>תומך XLSX, XLS, CSV</div>
+            <input type="file" accept=".xlsx,.xls,.csv" onChange={parseFile} style={{display:'none'}}/>
+          </label>
+        </div>
+      )}
+
+      {step===2&&(
+        <div>
+          <div style={{background:'#e8f5e9',borderRadius:8,padding:10,marginBottom:14,fontSize:12,color:'#2e7d32'}}>
+            ✓ נטען: <strong>{fileName}</strong> — {rows.length} שורות
+          </div>
+          <div style={{marginBottom:14}}>
+            <div style={{fontWeight:'bold',fontSize:13,marginBottom:10}}>מיפוי עמודות:</div>
+            {fieldLabels.map(([key,label])=>(
+              <div key={key} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+                <span style={{width:140,fontSize:12,color:'#555',flexShrink:0}}>{label}:</span>
+                <select value={colMap[key]} onChange={e=>setColMap(p=>({...p,[key]:Number(e.target.value)}))}
+                  style={{flex:1,border:'1px solid #ddd',borderRadius:6,padding:'6px 10px',fontSize:12,color:'#333'}}>
+                  {colOptions.map(i=><option key={i} value={i}>{colLabel(i)}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+          <div style={{marginBottom:14}}>
+            <div style={{fontWeight:'bold',fontSize:13,marginBottom:10}}>ייבא אל:</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
+              {data.brands.map(b=>(
+                <button key={b.id} onClick={()=>{setToBid(b.id);setToCid(b.categories[0]?.id||'');}}
+                  style={{padding:'7px 14px',borderRadius:20,border:`2px solid ${toBid===b.id?b.color:'#ddd'}`,background:toBid===b.id?b.color:'#fff',color:toBid===b.id?'#fff':'#555',cursor:'pointer',fontWeight:'bold',fontSize:13}}>
+                  {b.name}
+                </button>
+              ))}
+            </div>
+            {targetBrand&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
+              {targetBrand.categories.map(c=>(
+                <div key={c.id} onClick={()=>setToCid(c.id)}
+                  style={{padding:'8px 12px',borderRadius:8,border:`2px solid ${toCid===c.id?targetBrand.color:'#eee'}`,cursor:'pointer',background:toCid===c.id?targetBrand.light:'#fff',fontSize:12,color:'#333',fontWeight:toCid===c.id?'bold':'normal'}}>
+                  {c.name}
+                </div>
+              ))}
+            </div>}
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={buildPreview} disabled={!toCid} style={{flex:1,...BPr(toCid?'#1565c0':'#ccc')}}>הבא ▶</button>
+            <button onClick={()=>setStep(1)} style={{...BST,padding:'10px 16px',borderRadius:8}}>חזור</button>
+          </div>
+        </div>
+      )}
+
+      {step===3&&(
+        <div>
+          <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:10}}>
+            <div style={{fontWeight:'bold',fontSize:13}}>בחר דגמים לייבוא ({previewGroups.length} דגמים):</div>
+            <button onClick={()=>setExcluded(new Set())} style={{...sB('#4caf50'),marginRight:'auto'}}>בחר הכל</button>
+            <button onClick={()=>setExcluded(new Set(previewGroups.map(([n])=>n)))} style={sB('#9e9e9e')}>בטל הכל</button>
+          </div>
+          <div style={{maxHeight:'38vh',overflowY:'auto',border:'1px solid #eee',borderRadius:8,marginBottom:12}}>
+            {previewGroups.map(([name,count])=>{
+              const isExcluded=excluded.has(name);
+              const exists=targetBrand?.categories.find(c=>c.id===toCid)?.models.some(m=>m.name===name);
+              return(
+                <div key={name} onClick={()=>toggleExclude(name)}
+                  style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',background:isExcluded?'#fafafa':'#fff',opacity:isExcluded?.45:1}}
+                  onMouseEnter={e=>e.currentTarget.style.background=isExcluded?'#f5f5f5':'#f0f7ff'}
+                  onMouseLeave={e=>e.currentTarget.style.background=isExcluded?'#fafafa':'#fff'}>
+                  <input type="checkbox" checked={!isExcluded} readOnly style={{width:16,height:16,flexShrink:0}}/>
+                  <span style={{flex:1,fontWeight:'bold',color:isExcluded?'#aaa':'#333',fontSize:13}}>{name}</span>
+                  <span style={{color:targetBrand?.color,fontSize:11,fontWeight:'bold'}}>{count} חלקים</span>
+                  {exists
+                    ?<span style={{background:'#fff3e0',color:'#e65100',padding:'1px 6px',borderRadius:4,fontSize:10}}>יתווסף</span>
+                    :<span style={{background:'#e8f5e9',color:'#2e7d32',padding:'1px 6px',borderRadius:4,fontSize:10}}>חדש</span>}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{background:'#f3e5f5',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:13,color:'#6a1b9a'}}>
+            יוייבאו: <strong>{includedCount} דגמים</strong> עם <strong>{includedParts.toLocaleString()} חלקים</strong>
+            {' '}→ <strong>{targetBrand?.name}</strong> / <strong>{targetBrand?.categories.find(c=>c.id===toCid)?.name}</strong>
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={()=>{
+              const res=onImport(rows,colMap,toBid,toCid,excluded);
+              alert(`✅ יובאו ${res.models} דגמים עם ${res.parts.toLocaleString()} חלקים`);
+              onClose();
+            }} disabled={includedCount===0} style={{flex:1,...BPr(includedCount>0?'#4caf50':'#ccc')}}>✅ ייבא</button>
+            <button onClick={()=>setStep(2)} style={{...BST,padding:'10px 16px',borderRadius:8}}>חזור</button>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }
 
 // ══════════ MODEL VIEW ══════════
 function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,onCell,onColName,onMoveCol,onAddCol,onDelCol,onPaste,onImgUpload,onDelImg,onImgUrl,onOpenImg,onMove,onDuplicate,onCopyPartsFrom}){
-  const[synIn,setSynIn]=useState(model.synonyms.join(', '));
+  const[synIn,setSynIn]=useState(model.synonyms?.join(', ')||'');
   const[editSyn,setEditSyn]=useState(false);
   const[imgUrl,setImgUrl]=useState('');
   const[editUrl,setEditUrl]=useState(false);
@@ -716,10 +1002,8 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
   const q=hq.trim().toLowerCase();
   const images=model.images||[];
 
-  useEffect(()=>{setSynIn(model.synonyms.join(', '));},[model.id]);
-  useEffect(()=>{
-    if(q&&firstHiRef.current)setTimeout(()=>firstHiRef.current?.scrollIntoView({behavior:'smooth',block:'center'}),200);
-  },[q]);
+  useEffect(()=>{setSynIn(model.synonyms?.join(', ')||'');},[model.id]);
+  useEffect(()=>{if(q&&firstHiRef.current)setTimeout(()=>firstHiRef.current?.scrollIntoView({behavior:'smooth',block:'center'}),200);},[q]);
 
   const saveSyn=()=>{onUpdate({synonyms:synIn.split(',').map(s=>s.trim()).filter(Boolean)});setEditSyn(false);};
   const filtered=filter?model.parts.filter(p=>Object.values(p.values).some(v=>String(v).toLowerCase().includes(filter.toLowerCase()))):model.parts;
@@ -729,51 +1013,45 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
     const rows=pasteText.trim().split('\n').map(r=>r.split('\t').map(c=>c.trim())).filter(r=>r.some(c=>c));
     if(rows.length){onPaste(rows);setPasteText('');setShowPaste(false);}
   };
-
   const printModel=()=>{
     const w=window.open('','_blank');
     const rows=model.parts.map(p=>`<tr>${model.columns.map(c=>`<td style="padding:6px 10px;border:1px solid #ddd">${p.values[c.id]||''}</td>`).join('')}</tr>`).join('');
-    const imgs=images.map(img=>`<img src="${img}" style="max-width:48%;max-height:240px;border:1px solid #ddd;border-radius:6px;margin:4px">`).join('');
+    const imgs=images.map(img=>`<img src="${img}" style="max-width:48%;max-height:220px;border:1px solid #ddd;border-radius:6px;margin:4px">`).join('');
     w.document.write(`<html dir="rtl"><head><meta charset="UTF-8"><title>${model.name}</title>
-      <style>body{font-family:Arial;padding:20px}table{border-collapse:collapse;width:100%}th{background:${brand.color};color:#fff;padding:8px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}h2{color:${brand.color}}</style></head>
-      <body><h2>🔧 ${brand.name} — ${model.name}</h2><p style="color:#777">${cat.name}${model.synonyms.length?' | '+model.synonyms.join(', '):''}</p>
+      <style>body{font-family:Arial;padding:20px}table{border-collapse:collapse;width:100%}th{background:${brand.color};color:#fff;padding:8px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}</style></head>
+      <body><h2 style="color:${brand.color}">🔧 ${brand.name} — ${model.name}</h2>
+      <p style="color:#777">${cat.name}${model.synonyms?.length?' | '+model.synonyms.join(', '):''}</p>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0">${imgs}</div>
       <p style="color:#aaa;font-size:12px">${model.parts.length} חלקים | ${new Date().toLocaleDateString('he-IL')}</p>
-      <table><thead><tr>${model.columns.map(c=>`<th>${c.name}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
-      </body></html>`);
+      <table><thead><tr>${model.columns.map(c=>`<th>${c.name}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></body></html>`);
     w.document.close();w.print();
   };
-
   const exportModelXLS=()=>{
     const wb=XLSX.utils.book_new();
     const ws=XLSX.utils.aoa_to_sheet([model.columns.map(c=>c.name),...model.parts.map(p=>model.columns.map(c=>p.values[c.id]||''))]);
     XLSX.utils.book_append_sheet(wb,ws,model.name.slice(0,31));
     XLSX.writeFile(wb,`${brand.name}-${model.name}.xlsx`);
   };
-
   const shareLink=()=>{
     const url=window.location.href.split('?')[0]+`?b=${brand.id}&c=${cat.id}&m=${model.id}`;
-    navigator.clipboard?.writeText(url).then(()=>alert('✅ קישור הועתק!\n'+url)).catch(()=>alert('קישור:\n'+url));
+    navigator.clipboard?.writeText(url).then(()=>alert('✅ קישור הועתק')).catch(()=>alert('קישור:\n'+url));
   };
 
   let firstHiSet=false;
-
   return(
     <div style={{maxWidth:1100,margin:'0 auto'}}>
-
-      {/* ── Header ── */}
+      {/* Header */}
       <div style={{background:'#fff',borderRadius:12,padding:'14px 16px',marginBottom:12,boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
         <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:8}}>
           <span style={{background:brand.color,color:'#fff',padding:'3px 10px',borderRadius:20,fontSize:12,fontWeight:'bold'}}>{brand.name}</span>
           <span style={{color:'#999',fontSize:12}}>{cat.name}</span>
           <span style={{fontSize:17,fontWeight:'bold',color:'#222'}}>◈ {model.name}</span>
-          <span style={{marginRight:'auto',color:'#aaa',fontSize:11}}>{model.parts.length} חלקים</span>
+          <span style={{marginRight:'auto',color:'#aaa',fontSize:11}}>{model.parts.length.toLocaleString()} חלקים</span>
         </div>
-        {/* Synonyms */}
         <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',fontSize:12,marginBottom:10}}>
           <span style={{color:'#999'}}>שמות נרדפים:</span>
           {!editSyn
-            ?<><span style={{color:'#555'}}>{model.synonyms.length?model.synonyms.join(' | '):'—'}</span>
+            ?<><span style={{color:'#555'}}>{model.synonyms?.length?model.synonyms.join(' | '):'—'}</span>
                {admin&&<button onClick={()=>setEditSyn(true)} style={sB(brand.color)}>✏ עריכה</button>}</>
             :<><input value={synIn} onChange={e=>setSynIn(e.target.value)} placeholder="שם1, שם2"
                 style={{border:'1px solid #ddd',borderRadius:4,padding:'3px 8px',fontSize:12,width:200,color:'#333'}}/>
@@ -781,7 +1059,6 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
                <button onClick={()=>setEditSyn(false)} style={sB('#9e9e9e')}>ביטול</button></>
           }
         </div>
-        {/* Toolbar */}
         <div style={{display:'flex',gap:6,flexWrap:'wrap',borderTop:'1px solid #f0f0f0',paddingTop:10}}>
           <button onClick={printModel}     style={sB('#546e7a')}>🖨️ הדפס</button>
           <button onClick={exportModelXLS} style={sB('#388e3c')}>📊 Excel</button>
@@ -794,16 +1071,13 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
         </div>
       </div>
 
-      {/* ── IMAGES (multiple) ── */}
+      {/* Images */}
       <div style={{background:'#fff',borderRadius:12,padding:'14px 16px',marginBottom:12,boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,flexWrap:'wrap'}}>
           <span style={{fontWeight:'bold',fontSize:14}}>📐 שרטוטים טכניים</span>
           {admin&&<>
-            <label style={{...sB(brand.color),cursor:'pointer'}}>
-              📁 העלה תמונות
-              <input type="file" accept="image/*" multiple onChange={onImgUpload} style={{display:'none'}}/>
-            </label>
-            <button onClick={()=>setEditUrl(v=>!v)} style={sB('#607d8b')}>🔗 הוסף URL</button>
+            <label style={{...sB(brand.color),cursor:'pointer'}}>📁 העלה<input type="file" accept="image/*" multiple onChange={onImgUpload} style={{display:'none'}}/></label>
+            <button onClick={()=>setEditUrl(v=>!v)} style={sB('#607d8b')}>🔗 URL</button>
           </>}
           {images.length>0&&<span style={{color:'#aaa',fontSize:11,marginRight:'auto'}}>{images.length} תמונות</span>}
         </div>
@@ -823,18 +1097,18 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
                    style={{width:'100%',height:140,objectFit:'contain',cursor:'zoom-in',display:'block'}}/>
                  <div style={{padding:'4px 8px',display:'flex',alignItems:'center',justifyContent:'space-between',background:'#f5f5f5',borderTop:'1px solid #eee'}}>
                    <span style={{fontSize:11,color:'#888'}}>תמונה {idx+1}</span>
-                   {admin&&<button onClick={()=>{if(confirm('למחוק תמונה זו?'))onDelImg(idx);}} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13}}>🗑</button>}
+                   {admin&&<button onClick={()=>{if(confirm('למחוק?'))onDelImg(idx);}} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13}}>🗑</button>}
                  </div>
                </div>
              ))}
            </div>
           :<div style={{textAlign:'center',padding:28,background:'#fafafa',borderRadius:8,border:'2px dashed #e0e0e0',color:'#ccc',fontSize:13}}>
-             {admin?'העלה שרטוטים טכניים (ניתן להעלות מספר תמונות)':'אין שרטוטים'}
+             {admin?'העלה שרטוטים טכניים':'אין שרטוטים'}
            </div>
         }
       </div>
 
-      {/* ── Parts ── */}
+      {/* Parts */}
       <div style={{background:'#fff',borderRadius:12,padding:'14px 16px',boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,flexWrap:'wrap'}}>
           <span style={{fontWeight:'bold',fontSize:14}}>🔩 רשימת חלקים</span>
@@ -845,13 +1119,12 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
             <button onClick={onAddCol}  style={sB('#607d8b')}>+ עמודה</button>
             <button onClick={()=>setShowPaste(v=>!v)} style={sB('#e65100')}>📋 הדבק מאקסל</button>
           </>}
-          <span style={{marginRight:'auto',color:'#aaa',fontSize:11}}>{filtered.length}/{model.parts.length}</span>
+          <span style={{marginRight:'auto',color:'#aaa',fontSize:11}}>{filtered.length.toLocaleString()}/{model.parts.length.toLocaleString()}</span>
         </div>
-
         {showPaste&&admin&&(
           <div style={{background:'#fff8e1',border:'1px solid #ffcc02',borderRadius:8,padding:12,marginBottom:12}}>
             <div style={{fontSize:12,color:'#795548',marginBottom:4,fontWeight:'bold'}}>📋 סדר עמודות: {model.columns.map(c=>c.name).join(' ➔ ')}</div>
-            <div style={{fontSize:11,color:'#aaa',marginBottom:8}}>סמן שורות באקסל → Ctrl+C → לחץ בתיבה → Ctrl+V</div>
+            <div style={{fontSize:11,color:'#aaa',marginBottom:8}}>בחר שורות באקסל → Ctrl+C → לחץ בתיבה → Ctrl+V</div>
             <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder="הדבק כאן..."
               rows={5} style={{width:'100%',border:'1px solid #ddd',borderRadius:6,padding:'8px 10px',fontSize:12,fontFamily:'monospace',resize:'vertical',boxSizing:'border-box',direction:'ltr',color:'#333'}}/>
             {pasteText.trim()&&<div style={{fontSize:11,color:'#888',margin:'4px 0'}}>{pasteText.trim().split('\n').filter(r=>r.trim()).length} שורות זוהו</div>}
@@ -861,7 +1134,6 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
             </div>
           </div>
         )}
-
         <div style={{overflowX:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:360}}>
             <thead>
@@ -870,12 +1142,9 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
                   <th key={col.id} style={{padding:'9px 10px',textAlign:'right',color:'#333',fontWeight:'bold',borderBottom:`2px solid ${brand.color}`,whiteSpace:'nowrap',minWidth:90}}>
                     {admin
                       ?<div style={{display:'flex',alignItems:'center',gap:3}}>
-                         {/* Move column arrows */}
                          <div style={{display:'flex',flexDirection:'column',gap:1,flexShrink:0}}>
-                           <button onClick={()=>onMoveCol(col.id,-1)} disabled={ci===0}
-                             style={{background:'none',border:'none',cursor:ci===0?'default':'pointer',color:ci===0?'#ddd':'#888',fontSize:10,padding:0,lineHeight:1}}>◀</button>
-                           <button onClick={()=>onMoveCol(col.id,1)} disabled={ci===model.columns.length-1}
-                             style={{background:'none',border:'none',cursor:ci===model.columns.length-1?'default':'pointer',color:ci===model.columns.length-1?'#ddd':'#888',fontSize:10,padding:0,lineHeight:1}}>▶</button>
+                           <button onClick={()=>onMoveCol(col.id,-1)} disabled={ci===0} style={{background:'none',border:'none',cursor:ci===0?'default':'pointer',color:ci===0?'#ddd':'#888',fontSize:10,padding:0,lineHeight:1}}>◀</button>
+                           <button onClick={()=>onMoveCol(col.id,1)} disabled={ci===model.columns.length-1} style={{background:'none',border:'none',cursor:ci===model.columns.length-1?'default':'pointer',color:ci===model.columns.length-1?'#ddd':'#888',fontSize:10,padding:0,lineHeight:1}}>▶</button>
                          </div>
                          <input value={col.name} onChange={e=>onColName(col.id,e.target.value)}
                            style={{border:'1px dashed #ccc',borderRadius:3,padding:'2px 5px',fontSize:12,fontWeight:'bold',width:'100%',minWidth:50,background:'transparent',color:'#333'}}/>
@@ -889,8 +1158,7 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
             </thead>
             <tbody>
               {filtered.map((p,i)=>{
-                const hi=rowHi(p);
-                let ref=null;
+                const hi=rowHi(p);let ref=null;
                 if(hi&&!firstHiSet){firstHiSet=true;ref=firstHiRef;}
                 return(
                   <tr key={p.id} ref={ref} style={{background:hi?'#fff9c4':i%2?'#fafafa':'#fff',transition:'background .2s'}}
@@ -913,195 +1181,66 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
                   </tr>
                 );
               })}
-              {!filtered.length&&(
-                <tr><td colSpan={model.columns.length+(admin?1:0)} style={{padding:24,textAlign:'center',color:'#ccc'}}>
-                  {admin?'לחץ "+ שורה" להוספת חלק':'אין חלקים'}
-                </td></tr>
-              )}
+              {!filtered.length&&<tr><td colSpan={model.columns.length+(admin?1:0)} style={{padding:24,textAlign:'center',color:'#ccc'}}>
+                {admin?'לחץ "+ שורה" להוספת חלק':'אין חלקים'}
+              </td></tr>}
             </tbody>
           </table>
         </div>
       </div>
-
-      {showMove&&<MoveModelModal data={data} currentBid={brand.id} currentCid={cat.id} onMove={onMove} onClose={()=>setShowMove(false)}/>}
+      {showMove&&<MoveModal data={data} currentBid={brand.id} currentCid={cat.id} onMove={onMove} onClose={()=>setShowMove(false)}/>}
       {showCopy&&<CopyPartsModal data={data} currentMid={model.id} onCopy={onCopyPartsFrom} onClose={()=>setShowCopy(false)}/>}
     </div>
   );
 }
 
-// ══════════ EXCEL IMPORT MODAL ══════════
-function XlsImportModal({data,onImport,onClose}){
-  const[rows,setRows]=useState([]);
-  const[preview,setPreview]=useState([]);
-  const[fileName,setFileName]=useState('');
-  const[toBid,setToBid]=useState(data.brands[0]?.id||'');
-  const[toCid,setToCid]=useState(data.brands[0]?.categories[0]?.id||'');
-  const[colMap,setColMap]=useState({model:0,nameHe:1,tadPn:2,nameEn:3,mfgPn:4});
-  const[step,setStep]=useState(1); // 1=upload, 2=map+target, 3=preview
-
-  const targetBrand=data.brands.find(b=>b.id===toBid);
-
-  const parseFile=e=>{
-    const f=e.target.files[0];if(!f)return;
-    setFileName(f.name);
-    const reader=new FileReader();
-    reader.onload=ev=>{
-      const wb=XLSX.read(ev.target.result,{type:'binary'});
-      const ws=wb.Sheets[wb.SheetNames[0]];
-      const all=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
-      // skip header row if first cell looks like a header
-      const firstCell=String(all[0]?.[0]||'').toLowerCase();
-      const dataRows=firstCell.includes('דגם')||firstCell.includes('model')||firstCell.includes('שם')?all.slice(1):all;
-      setRows(dataRows.filter(r=>r.some(c=>String(c).trim())));
-      setStep(2);
-    };
-    reader.readAsBinaryString(f);
-    e.target.value='';
-  };
-
-  const buildPreview=()=>{
-    const grouped={};
-    rows.forEach(r=>{
-      const mn=String(r[colMap.model]||'').trim();if(!mn)return;
-      grouped[mn]=(grouped[mn]||0)+1;
-    });
-    setPreview(Object.entries(grouped));
-    setStep(3);
-  };
-
-  const colLabel=i=>{
-    const sample=rows.slice(0,3).map(r=>String(r[i]||'').trim()).filter(Boolean).join(', ');
-    return `עמודה ${i+1}${sample?' ('+sample.slice(0,30)+')':''}`;
-  };
-  const maxCols=rows[0]?rows[0].length:6;
-  const colOptions=Array.from({length:maxCols},(_,i)=>i);
-
-  const fieldLabels=[
-    ['model','שם הדגם (עמודת מפתח)'],
-    ['nameHe','שם בעברית'],
-    ['tadPn','מק"ט תדיראן'],
-    ['nameEn','שם באנגלית'],
-    ['mfgPn','מק"ט יצרן'],
-  ];
-
+function MoveModal({data,currentBid,currentCid,onMove,onClose}){
+  const[toBid,setToBid]=useState(currentBid);const[toCid,setToCid]=useState('');
+  const brand=data.brands.find(b=>b.id===toBid);
   return(
-    <Modal onClose={onClose} wide title="📥 ייבוא חלקים מ-Excel">
-
-      {/* STEP INDICATOR */}
-      <div style={{display:'flex',gap:4,marginBottom:20}}>
-        {['1. העלאה','2. מיפוי','3. אישור'].map((s,i)=>(
-          <div key={i} style={{flex:1,textAlign:'center',padding:'6px 0',borderRadius:6,fontSize:12,fontWeight:'bold',
-            background:step===i+1?'#1565c0':step>i+1?'#4caf50':'#f0f0f0',
-            color:step>=i+1?'#fff':'#aaa'}}>
-            {s}
-          </div>
-        ))}
+    <Modal onClose={onClose} title="🔀 העבר דגם">
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
+        {data.brands.map(b=><button key={b.id} onClick={()=>{setToBid(b.id);setToCid('');}}
+          style={{padding:'7px 14px',borderRadius:20,border:`2px solid ${toBid===b.id?b.color:'#ddd'}`,background:toBid===b.id?b.color:'#fff',color:toBid===b.id?'#fff':'#555',cursor:'pointer',fontWeight:'bold',fontSize:13}}>{b.name}</button>)}
       </div>
-
-      {/* STEP 1 — UPLOAD */}
-      {step===1&&(
-        <div>
-          <div style={{background:'#e3f2fd',borderRadius:10,padding:16,marginBottom:16,fontSize:13,color:'#1565c0'}}>
-            <div style={{fontWeight:'bold',marginBottom:8}}>📋 פורמט הקובץ הנדרש:</div>
-            <div>הקובץ צריך להכיל עמודות (בכל סדר — ניתן לשנות במיפוי):</div>
-            <div style={{marginTop:6,fontFamily:'monospace',fontSize:11,background:'#fff',borderRadius:6,padding:8}}>
-              דגם | שם בעברית | מק"ט תדיראן | שם באנגלית | מק"ט יצרן
-            </div>
-          </div>
-          <label style={{display:'block',border:'2px dashed #1565c0',borderRadius:12,padding:'32px 20px',textAlign:'center',cursor:'pointer',background:'#f8fbff'}}>
-            <div style={{fontSize:36,marginBottom:8}}>📊</div>
-            <div style={{fontWeight:'bold',color:'#1565c0',fontSize:15,marginBottom:4}}>לחץ לבחירת קובץ Excel</div>
-            <div style={{color:'#aaa',fontSize:12}}>תומך ב-XLSX, XLS, CSV</div>
-            <input type="file" accept=".xlsx,.xls,.csv" onChange={parseFile} style={{display:'none'}}/>
-          </label>
-        </div>
-      )}
-
-      {/* STEP 2 — COLUMN MAPPING + TARGET */}
-      {step===2&&(
-        <div>
-          <div style={{background:'#e8f5e9',borderRadius:8,padding:10,marginBottom:14,fontSize:12,color:'#2e7d32'}}>
-            ✓ נטען: <strong>{fileName}</strong> — {rows.length} שורות
-          </div>
-
-          {/* Column mapping */}
-          <div style={{marginBottom:16}}>
-            <div style={{fontWeight:'bold',fontSize:13,marginBottom:10,color:'#333'}}>מיפוי עמודות:</div>
-            {fieldLabels.map(([key,label])=>(
-              <div key={key} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
-                <span style={{width:130,fontSize:12,color:'#555',flexShrink:0}}>{label}:</span>
-                <select value={colMap[key]} onChange={e=>setColMap(p=>({...p,[key]:Number(e.target.value)}))}
-                  style={{flex:1,border:'1px solid #ddd',borderRadius:6,padding:'6px 10px',fontSize:12,color:'#333'}}>
-                  {colOptions.map(i=><option key={i} value={i}>{colLabel(i)}</option>)}
-                </select>
-              </div>
-            ))}
-          </div>
-
-          {/* Target brand + category */}
-          <div style={{marginBottom:16}}>
-            <div style={{fontWeight:'bold',fontSize:13,marginBottom:10,color:'#333'}}>לאיזה מותג וקטגוריה לייבא?</div>
-            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
-              {data.brands.map(b=>(
-                <button key={b.id} onClick={()=>{setToBid(b.id);setToCid(b.categories[0]?.id||'');}}
-                  style={{padding:'7px 14px',borderRadius:20,border:`2px solid ${toBid===b.id?b.color:'#ddd'}`,
-                    background:toBid===b.id?b.color:'#fff',color:toBid===b.id?'#fff':'#555',cursor:'pointer',fontWeight:'bold',fontSize:13}}>
-                  {b.name}
-                </button>
-              ))}
-            </div>
-            {targetBrand&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
-              {targetBrand.categories.map(c=>(
-                <div key={c.id} onClick={()=>setToCid(c.id)}
-                  style={{padding:'8px 12px',borderRadius:8,border:`2px solid ${toCid===c.id?targetBrand.color:'#eee'}`,
-                    cursor:'pointer',background:toCid===c.id?targetBrand.light:'#fff',fontSize:12,color:'#333',fontWeight:toCid===c.id?'bold':'normal'}}>
-                  {c.name}
-                </div>
-              ))}
-            </div>}
-          </div>
-
-          <div style={{display:'flex',gap:8}}>
-            <button onClick={buildPreview} disabled={!toCid} style={{flex:1,...BPr(toCid?'#1565c0':'#ccc')}}>הבא — תצוגה מקדימה ▶</button>
-            <button onClick={()=>setStep(1)} style={{...BST,padding:'10px 16px',borderRadius:8}}>חזור</button>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 3 — PREVIEW + CONFIRM */}
-      {step===3&&(
-        <div>
-          <div style={{background:'#fff8e1',border:'1px solid #ffcc02',borderRadius:8,padding:12,marginBottom:14,fontSize:12}}>
-            <div style={{fontWeight:'bold',color:'#795548',marginBottom:6}}>תצוגה מקדימה — {preview.length} דגמים יובאו:</div>
-            <div style={{maxHeight:260,overflowY:'auto'}}>
-              {preview.map(([name,count])=>{
-                const exists=targetBrand?.categories.find(c=>c.id===toCid)?.models.some(m=>m.name===name);
-                return(
-                  <div key={name} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f0e0b0'}}>
-                    <span style={{flex:1,fontWeight:'bold',color:'#333',fontSize:13}}>{name}</span>
-                    <span style={{color:targetBrand?.color||'#333',fontSize:11,fontWeight:'bold'}}>{count} חלקים</span>
-                    {exists
-                      ?<span style={{background:'#fff3e0',color:'#e65100',padding:'1px 7px',borderRadius:4,fontSize:10,fontWeight:'bold'}}>יתווספו לדגם קיים</span>
-                      :<span style={{background:'#e8f5e9',color:'#2e7d32',padding:'1px 7px',borderRadius:4,fontSize:10,fontWeight:'bold'}}>דגם חדש</span>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <div style={{background:'#f3e5f5',borderRadius:8,padding:10,marginBottom:14,fontSize:12,color:'#6a1b9a'}}>
-            ייבוא ל: <strong>{targetBrand?.name}</strong> → <strong>{targetBrand?.categories.find(c=>c.id===toCid)?.name}</strong>
-          </div>
-          <div style={{display:'flex',gap:8}}>
-            <button onClick={()=>{onImport(rows,colMap,toBid,toCid);onClose();}} style={{flex:1,...BPr('#4caf50')}}>✅ ייבא הכל</button>
-            <button onClick={()=>setStep(2)} style={{...BST,padding:'10px 16px',borderRadius:8}}>חזור</button>
-          </div>
-        </div>
-      )}
+      {brand&&brand.categories.map(c=><div key={c.id} onClick={()=>setToCid(c.id)}
+        style={{padding:'10px 14px',borderRadius:8,border:`2px solid ${toCid===c.id?brand.color:'#eee'}`,marginBottom:6,cursor:'pointer',background:toCid===c.id?brand.light:'#fff',color:'#333',fontSize:13,fontWeight:toCid===c.id?'bold':'normal'}}>
+        {c.name}{toBid===currentBid&&c.id===currentCid&&<span style={{fontSize:11,color:'#aaa',marginRight:8}}>(נוכחי)</span>}
+      </div>)}
+      <div style={{display:'flex',gap:8,marginTop:12}}>
+        <button onClick={()=>{if(!toCid){alert('בחר קטגוריה');return;}if(toBid===currentBid&&toCid===currentCid){alert('זו אותה קטגוריה');return;}onMove(toBid,toCid);onClose();}} style={{flex:1,...BPr('#1565c0')}}>✓ העבר</button>
+        <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
+      </div>
     </Modal>
   );
 }
 
-// ══════════ BRAND MANAGER ══════════
+function CopyPartsModal({data,currentMid,onCopy,onClose}){
+  const[picked,setPicked]=useState(null);
+  const options=[];data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{if(m.id!==currentMid&&m.parts.length>0)options.push({b,c,m});})));
+  return(
+    <Modal onClose={onClose} title="📋 העתק חלקים מדגם אחר" wide>
+      <div style={{maxHeight:'50vh',overflowY:'auto',marginBottom:12}}>
+        {!options.length&&<div style={{textAlign:'center',color:'#bbb',padding:24}}>אין דגמים עם חלקים</div>}
+        {options.map(({b,c,m})=>(
+          <div key={m.id} onClick={()=>setPicked({b,c,m})}
+            style={{padding:'10px 14px',borderRadius:8,border:`2px solid ${picked?.m.id===m.id?b.color:'#eee'}`,marginBottom:6,cursor:'pointer',background:picked?.m.id===m.id?b.light:'#fff',display:'flex',alignItems:'center',gap:10}}>
+            <span style={{background:b.color,color:'#fff',padding:'2px 8px',borderRadius:4,fontSize:11,fontWeight:'bold'}}>{b.name}</span>
+            <span style={{fontWeight:'bold',color:'#333',flex:1}}>{m.name}</span>
+            <span style={{color:'#999',fontSize:11}}>{c.name}</span>
+            <span style={{color:b.color,fontSize:11,fontWeight:'bold'}}>{m.parts.length} חלקים</span>
+          </div>
+        ))}
+      </div>
+      {picked&&<div style={{background:'#e8f5e9',borderRadius:8,padding:'10px 14px',marginBottom:12,fontSize:13,color:'#2e7d32'}}>✓ <strong>{picked.m.name}</strong> — {picked.m.parts.length} חלקים יועתקו</div>}
+      <div style={{display:'flex',gap:8}}>
+        <button onClick={()=>{if(!picked){alert('בחר דגם');return;}onCopy(picked.b.id,picked.c.id,picked.m.id);onClose();alert(`✅ ${picked.m.parts.length} חלקים הועתקו`);}} style={{flex:1,...BPr('#4caf50')}}>✓ העתק</button>
+        <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
+      </div>
+    </Modal>
+  );
+}
+
 function BrandMgr({data,onClose,onSave}){
   const[brands,setBrands]=useState(JSON.parse(JSON.stringify(data.brands)));
   const add=()=>setBrands(b=>[...b,{id:gid(),name:'מותג חדש',color:'#607d8b',light:'#eceff1',categories:DCATS()}]);
@@ -1117,8 +1256,7 @@ function BrandMgr({data,onClose,onSave}){
                 style={{border:'1px solid #ddd',borderRadius:6,padding:'6px 10px',fontSize:14,fontWeight:'bold',flex:'1 1 100px',color:'#333'}}/>
               <div style={{display:'flex',alignItems:'center',gap:6}}>
                 <label style={{fontSize:12,color:'#777'}}>צבע:</label>
-                <input type="color" value={b.color} onChange={e=>{const c=e.target.value;upd(b.id,'color',c);upd(b.id,'light',c+'22');}}
-                  style={{border:'none',borderRadius:4,height:34,width:44,cursor:'pointer'}}/>
+                <input type="color" value={b.color} onChange={e=>{const c=e.target.value;upd(b.id,'color',c);upd(b.id,'light',c+'22');}} style={{border:'none',borderRadius:4,height:34,width:44,cursor:'pointer'}}/>
               </div>
               <button onClick={()=>del(b.id)} style={{background:'none',border:'1px solid #e53935',color:'#e53935',borderRadius:6,padding:'6px 12px',cursor:'pointer',fontSize:12}}>מחק</button>
             </div>
@@ -1135,7 +1273,6 @@ function BrandMgr({data,onClose,onSave}){
   );
 }
 
-// ══════════ CHANGE PASSWORD ══════════
 function ChangePwd({current,onSave,onClose}){
   const[cur,setCur]=useState('');const[nw,setNw]=useState('');const[cf,setCf]=useState('');const[err,setErr]=useState('');
   const submit=()=>{
