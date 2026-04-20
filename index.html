@@ -199,7 +199,8 @@ function App(){
   const[pwdIn,setPwdIn]=useState('');
   const[pwdErr,setPwdErr]=useState('');
   const[query,setQuery]=useState('');
-  const[sidebar,setSidebar]=useState(true);
+  const[sidebar,setSidebar]=useState(false);
+  const headerRef=useRef(null);
   const[imgModal,setImgModal]=useState({imgs:[],idx:0});
   const[imgZoom,setImgZoom]=useState(1);
   const[brandMgr,setBrandMgr]=useState(false);
@@ -459,7 +460,7 @@ function App(){
     <div dir="rtl" style={{fontFamily:'Arial,sans-serif',minHeight:'100vh',background:'#f0f2f5',display:'flex',flexDirection:'column',fontSize:14}}>
 
       {/* ── HEADER ── */}
-      <header style={{background:hdrBg,color:'#fff',padding:'10px 12px',display:'flex',alignItems:'center',gap:7,boxShadow:'0 2px 8px rgba(0,0,0,.25)',position:'sticky',top:0,zIndex:200,flexWrap:'wrap',transition:'background .3s'}}>
+      <header ref={headerRef} style={{background:hdrBg,color:'#fff',padding:'10px 12px',display:'flex',alignItems:'center',gap:7,boxShadow:'0 2px 8px rgba(0,0,0,.25)',position:'sticky',top:0,zIndex:200,flexWrap:'wrap',transition:'background .3s'}}>
         <button onClick={()=>setSidebar(v=>!v)} style={bB('rgba(255,255,255,.2)')}>☰</button>
         <button onClick={goHome} title="מסך הבית" style={{...bB('rgba(255,255,255,.2)'),fontSize:16}}>🏠</button>
         {sel&&<button onClick={goBack} title="חזור" style={{...bB('rgba(255,255,255,.2)'),fontSize:15}}>◀ חזור</button>}
@@ -499,10 +500,13 @@ function App(){
         {admin&&<button onClick={()=>setShowXlsImport(true)} style={bB('#00796b')}>📥 ייבא Excel</button>}
       </header>
 
-      {/* ── SEARCH DROPDOWN ── */}
+      {/* ── SEARCH DROPDOWN — positioned below header ── */}
       {query&&(
-        <div style={{position:'fixed',top:56,right:0,left:0,zIndex:300,background:'#fff',boxShadow:'0 6px 20px rgba(0,0,0,.15)',maxHeight:'58vh',overflowY:'auto',animation:'fadeIn .1s'}}>
-          <div style={{padding:'8px 14px',borderBottom:'1px solid #eee',color:'#777',fontSize:12}}>{results.length} תוצאות</div>
+        <div style={{position:'fixed',top:(headerRef.current?.offsetHeight||56)+'px',right:0,left:0,zIndex:300,background:'#fff',boxShadow:'0 6px 20px rgba(0,0,0,.15)',maxHeight:'55vh',overflowY:'auto',animation:'fadeIn .1s'}}>
+          <div style={{padding:'8px 14px',borderBottom:'1px solid #eee',color:'#777',fontSize:12,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            <span>{results.length} תוצאות עבור: <strong>{query}</strong></span>
+            <button onClick={()=>setQuery('')} style={{background:'#e53935',border:'none',borderRadius:5,color:'#fff',padding:'3px 10px',cursor:'pointer',fontSize:12}}>✕ סגור</button>
+          </div>
           {!results.length&&<div style={{padding:24,textAlign:'center',color:'#bbb'}}>לא נמצאו תוצאות</div>}
           {results.map((r,i)=>(
             <div key={i} onClick={()=>nav(r.b.id,r.c.id,r.m.id,query)}
@@ -1097,6 +1101,19 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
   const[pasteText,setPasteText]=useState('');
   const[showMove,setShowMove]=useState(false);
   const[showCopy,setShowCopy]=useState(false);
+  const[selectedRows,setSelectedRows]=useState(new Set());
+  const toggleRow=id=>setSelectedRows(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
+  const clearRows=()=>setSelectedRows(new Set());
+  const sendWhatsApp=()=>{
+    const selParts=model.parts.filter(p=>selectedRows.has(p.id));
+    const header=`🔧 *${brand.name} — ${model.name}*\n${cat.name}\n${'─'.repeat(30)}`;
+    const lines=selParts.map((p,i)=>{
+      const vals=model.columns.map(c=>{const v=(p.values[c.id]||'').trim();return v?`${c.name}: ${v}`:'';}).filter(Boolean);
+      return `*${i+1}.* ${vals.join(' | ')}`;
+    }).join('\n');
+    const msg=`${header}\n\n${lines}\n\n_סה"כ ${selParts.length} חלקים_`;
+    window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');
+  };
   const firstHiRef=useRef(null);
   const q=hq.trim().toLowerCase();
   const images=model.images||[];
@@ -1235,10 +1252,26 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
             </div>
           </div>
         )}
+        {/* WhatsApp floating bar */}
+        {selectedRows.size>0&&(
+          <div style={{position:'sticky',bottom:12,zIndex:100,background:'#25D366',borderRadius:12,padding:'12px 16px',display:'flex',alignItems:'center',gap:10,boxShadow:'0 4px 16px rgba(0,0,0,.25)',margin:'0 0 12px',flexWrap:'wrap'}}>
+            <span style={{color:'#fff',fontWeight:'bold',fontSize:14,flex:1}}>✓ {selectedRows.size} שורות נבחרו</span>
+            <button onClick={sendWhatsApp} style={{background:'#fff',border:'none',borderRadius:8,padding:'8px 18px',cursor:'pointer',fontWeight:'bold',color:'#25D366',fontSize:14}}>
+              📱 שלח לווצאפ
+            </button>
+            <button onClick={clearRows} style={{background:'rgba(255,255,255,.25)',border:'none',borderRadius:8,padding:'8px 14px',cursor:'pointer',color:'#fff',fontSize:13}}>ביטול</button>
+          </div>
+        )}
         <div style={{overflowX:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:360}}>
             <thead>
               <tr style={{background:brand.light}}>
+                <th style={{width:36,padding:'9px 6px',borderBottom:`2px solid ${brand.color}`}}>
+                  <div onClick={()=>{if(selectedRows.size===filtered.length)clearRows();else setSelectedRows(new Set(filtered.map(p=>p.id)));}}
+                    style={{width:18,height:18,borderRadius:4,border:`2px solid ${brand.color}`,background:selectedRows.size===filtered.length&&filtered.length>0?brand.color:'#fff',cursor:'pointer',margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    {selectedRows.size===filtered.length&&filtered.length>0&&<span style={{color:'#fff',fontSize:11,fontWeight:'bold'}}>✓</span>}
+                  </div>
+                </th>
                 {model.columns.map((col,ci)=>(
                   <th key={col.id} style={{padding:'9px 10px',textAlign:'right',color:'#333',fontWeight:'bold',borderBottom:`2px solid ${brand.color}`,whiteSpace:'nowrap',minWidth:90}}>
                     {admin
@@ -1262,10 +1295,16 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
                 const hi=rowHi(p);let ref=null;
                 if(hi&&!firstHiSet){firstHiSet=true;ref=firstHiRef;}
                 return(
-                  <tr key={p.id} ref={ref} style={{background:hi?'#fff9c4':i%2?'#fafafa':'#fff',transition:'background .2s'}}
-                    onMouseEnter={e=>{if(!hi)e.currentTarget.style.background=brand.light;}}
-                    onMouseLeave={e=>{if(!hi)e.currentTarget.style.background=i%2?'#fafafa':'#fff';}}>
-                    {model.columns.map(col=>{
+                  <tr key={p.id} ref={ref} style={{background:hi?'#fff9c4':selectedRows.has(p.id)?'#e8f5e9':i%2?'#fafafa':'#fff',transition:'background .15s',cursor:'pointer'}}
+                    onClick={()=>toggleRow(p.id)}
+                    onMouseEnter={e=>{if(!hi&&!selectedRows.has(p.id))e.currentTarget.style.background=brand.light;}}
+                    onMouseLeave={e=>{if(!hi&&!selectedRows.has(p.id))e.currentTarget.style.background=i%2?'#fafafa':'#fff';}}>
+                    <td style={{padding:'7px 6px',textAlign:'center'}} onClick={e=>e.stopPropagation()}>
+                      <div onClick={()=>toggleRow(p.id)}
+                        style={{width:18,height:18,borderRadius:4,border:`2px solid ${selectedRows.has(p.id)?'#25D366':'#ccc'}`,background:selectedRows.has(p.id)?'#25D366':'#fff',cursor:'pointer',margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                        {selectedRows.has(p.id)&&<span style={{color:'#fff',fontSize:11,fontWeight:'bold'}}>✓</span>}
+                      </div>
+                    </td>                    {model.columns.map(col=>{
                       const v=p.values[col.id]||'';
                       return(
                         <td key={col.id} style={{padding:'7px 10px',borderBottom:'1px solid #f0f0f0',background:cellHi(v)?'#ffeb3b55':undefined}}>
@@ -1282,7 +1321,7 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
                   </tr>
                 );
               })}
-              {!filtered.length&&<tr><td colSpan={model.columns.length+(admin?1:0)} style={{padding:24,textAlign:'center',color:'#ccc'}}>
+              {!filtered.length&&<tr><td colSpan={model.columns.length+(admin?2:2)} style={{padding:24,textAlign:'center',color:'#ccc'}}>
                 {admin?'לחץ "+ שורה" להוספת חלק':'אין חלקים'}
               </td></tr>}
             </tbody>
