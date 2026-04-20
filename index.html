@@ -206,6 +206,12 @@ function App(){
   const[chPwd,setChPwd]=useState(false);
   const[showXlsImport,setShowXlsImport]=useState(false);
   const[showBulkMove,setShowBulkMove]=useState(false);
+  const[showBulkDelete,setShowBulkDelete]=useState(false);
+  const[recentlyViewed,setRecentlyViewed]=useState(()=>{try{return JSON.parse(localStorage.getItem('ac_recent')||'[]');}catch{return [];}});
+  const[now,setNow]=useState(new Date());
+  const[history,setHistory]=useState([]);// navigation history stack
+
+  useEffect(()=>{const t=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(t);},[]);
   const saveTimer=useRef(null);
   const firstLoad=useRef(true);
   const changedMids=useRef(new Set());
@@ -254,8 +260,27 @@ function App(){
     return res;
   },[query,data]);
 
-  const nav=(bid,cid,mid,hq='')=>{setSel({bid,cid,mid,hq});setQuery('');if(window.innerWidth<700)setSidebar(false);};
-  const goHome=()=>{setSel(null);setQuery('');};
+  const nav=(bid,cid,mid,hq='')=>{
+    // push current to history before navigating
+    if(sel)setHistory(h=>[...h.slice(-9),sel]);
+    setSel({bid,cid,mid,hq});setQuery('');
+    // track recently viewed
+    if(mid){
+      setRecentlyViewed(prev=>{
+        const entry={bid,cid,mid,ts:Date.now()};
+        const filtered=prev.filter(x=>x.mid!==mid).slice(0,11);
+        const next=[entry,...filtered];
+        try{localStorage.setItem('ac_recent',JSON.stringify(next));}catch{}
+        return next;
+      });
+    }
+    if(window.innerWidth<700)setSidebar(false);
+  };
+  const goBack=()=>{
+    if(history.length>0){const prev=history[history.length-1];setHistory(h=>h.slice(0,-1));setSel(prev);}
+    else goHome();
+  };
+  const goHome=()=>{setSel(null);setQuery('');setHistory([]);};
 
   const mut=fn=>setData(d=>fn(d));
   const mutM=(bid,cid,mid,fn)=>{
@@ -373,7 +398,19 @@ function App(){
     return{models:Object.keys(grouped).length,parts:totalParts};
   };
 
-  // ── EXPORT/IMPORT JSON (admin only) ──
+  // ── BULK DELETE ──
+  const bulkDeleteModels=async(selections)=>{
+    if(!confirm(`למחוק ${selections.length} דגמים לצמיתות?`))return;
+    try{
+      await Promise.all(selections.map(s=>db.collection('parts').doc(s.mid).delete().catch(()=>{})));
+    }catch{}
+    mut(d=>({...d,brands:d.brands.map(b=>({
+      ...b,categories:b.categories.map(c=>({
+        ...c,models:c.models.filter(m=>!selections.some(s=>s.mid===m.id&&s.bid===b.id&&s.cid===c.id))
+      }))
+    }))}));
+    if(selections.some(s=>s.mid===sel?.mid))setSel(null);
+  };
   const expXLS=()=>{
     if(!data)return;
     const wb=XLSX.utils.book_new();
@@ -425,7 +462,12 @@ function App(){
       <header style={{background:hdrBg,color:'#fff',padding:'10px 12px',display:'flex',alignItems:'center',gap:7,boxShadow:'0 2px 8px rgba(0,0,0,.25)',position:'sticky',top:0,zIndex:200,flexWrap:'wrap',transition:'background .3s'}}>
         <button onClick={()=>setSidebar(v=>!v)} style={bB('rgba(255,255,255,.2)')}>☰</button>
         <button onClick={goHome} title="מסך הבית" style={{...bB('rgba(255,255,255,.2)'),fontSize:16}}>🏠</button>
-        <span style={{fontWeight:'bold',fontSize:15,flexShrink:0}}>🔧 חלקי חילוף מזגנים</span>
+        {sel&&<button onClick={goBack} title="חזור" style={{...bB('rgba(255,255,255,.2)'),fontSize:15}}>◀ חזור</button>}
+        <span style={{fontWeight:'bold',fontSize:15,flexShrink:0}}>🔧 חלקי חילוף</span>
+        {/* Clock */}
+        <span style={{fontSize:11,color:'rgba(255,255,255,.75)',flexShrink:0,fontFamily:'monospace'}}>
+          {now.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'})} {now.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}
+        </span>
 
         {/* Save indicator */}
         {saving==='saving'&&<span style={{fontSize:11,color:'rgba(255,255,255,.8)',flexShrink:0}}>💾 שומר...</span>}
@@ -439,8 +481,8 @@ function App(){
 
         {/* Search */}
         <div style={{flex:'1 1 140px',position:'relative',minWidth:100}}>
-          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="🔍 חיפוש גלובלי..."
-            style={{width:'100%',padding:'7px 34px 7px 12px',borderRadius:20,border:'none',fontSize:13,outline:'none',color:'#333'}}/>
+          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="🔍 חיפוש..."
+            style={{width:'100%',padding:'7px 34px 7px 12px',borderRadius:20,border:'none',fontSize:13,outline:'none',color:'#222',background:'#fff'}}/>
           {query&&<button onClick={()=>setQuery('')} style={{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#999',fontSize:16}}>✕</button>}
         </div>
 
@@ -449,6 +491,7 @@ function App(){
         </button>
         {admin&&<button onClick={()=>setBrandMgr(true)} style={bB('rgba(255,255,255,.2)')}>⚙ מותגים</button>}
         {admin&&<button onClick={()=>setShowBulkMove(true)} style={bB('rgba(255,255,255,.2)')}>🔀 העברה מרובה</button>}
+        {admin&&<button onClick={()=>setShowBulkDelete(true)} style={bB('#b71c1c')}>🗑 מחיקה מרובה</button>}
         {admin&&<button onClick={()=>setChPwd(true)}    style={bB('rgba(255,255,255,.2)')}>🔑 סיסמה</button>}
         {admin&&<button onClick={expXLS}                style={bB('rgba(255,255,255,.2)')}>📊 Excel</button>}
         {admin&&<button onClick={expJSON}               style={bB('rgba(255,255,255,.2)')}>💾 גיבוי</button>}
@@ -514,7 +557,7 @@ function App(){
         {/* ── MAIN ── */}
         <main style={{flex:1,overflowY:'auto',padding:14}}>
           {!model
-            ?<HomeScreen data={data} onNav={nav}/>
+            ?<HomeScreen data={data} onNav={nav} recentlyViewed={recentlyViewed}/>
             :<ModelView key={model.id} brand={brand} cat={cat} model={model} admin={admin} hq={sel?.hq||''} data={data}
               onUpdate={u=>{changedMids.current.add(model.id);mutM(brand.id,cat.id,model.id,m=>({...m,...u}));}}
               onAddPart={()=>mutM(brand.id,cat.id,model.id,m=>({...m,parts:[...m.parts,{id:gid(),values:Object.fromEntries(m.columns.map(c=>[c.id,'']))}]}))}
@@ -601,52 +644,108 @@ function App(){
       {brandMgr&&<BrandMgr data={data} onSave={brands=>{mut(d=>({...d,brands}));setBrandMgr(false);}} onClose={()=>setBrandMgr(false)}/>}
       {showXlsImport&&<XlsImportModal data={data} onImport={importFromXls} onClose={()=>setShowXlsImport(false)}/>}
       {showBulkMove&&<BulkMoveModal data={data} onMove={bulkMoveModels} onClose={()=>setShowBulkMove(false)}/>}
+      {showBulkDelete&&<BulkDeleteModal data={data} onDelete={bulkDeleteModels} onClose={()=>setShowBulkDelete(false)}/>}
     </div>
   );
 }
 
 // ══════════ HOME ══════════
-function HomeScreen({data,onNav}){
+function HomeScreen({data,onNav,recentlyViewed}){
   const total=data.brands.reduce((s,b)=>s+b.categories.reduce((ss,c)=>ss+c.models.length,0),0);
   const totalParts=data.brands.reduce((s,b)=>s+b.categories.reduce((ss,c)=>ss+c.models.reduce((sss,m)=>sss+m.parts.length,0),0),0);
+  const[expandedBrand,setExpandedBrand]=useState(null);
+
+  // resolve recently viewed
+  const recentModels=recentlyViewed.slice(0,6).map(rv=>{
+    const b=data.brands.find(x=>x.id===rv.bid);
+    const c=b?.categories.find(x=>x.id===rv.cid);
+    const m=c?.models.find(x=>x.id===rv.mid);
+    if(!b||!c||!m)return null;
+    return{b,c,m,ts:rv.ts};
+  }).filter(Boolean);
+
+  const fmtTime=ts=>{
+    const d=new Date(ts),now=new Date();
+    const diff=Math.floor((now-d)/60000);
+    if(diff<1)return 'עכשיו';
+    if(diff<60)return `לפני ${diff} דק'`;
+    if(diff<1440)return `לפני ${Math.floor(diff/60)} שע'`;
+    return d.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'});
+  };
+
   return(
     <div>
-      <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:20,background:'#fff',borderRadius:14,padding:'16px 20px',boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
-        <span style={{fontSize:44}}>❄️</span>
-        <div>
-          <div style={{fontWeight:'bold',fontSize:20,color:'#333'}}>קטלוג חלקי חילוף מזגנים</div>
-          <div style={{color:'#aaa',fontSize:13,marginTop:3}}>{data.brands.length} מותגים · {total} דגמים · {totalParts.toLocaleString()} חלקים</div>
-        </div>
+      {/* Stats bar */}
+      <div style={{display:'flex',gap:12,marginBottom:20,flexWrap:'wrap'}}>
+        {[
+          {icon:'❄️',label:'דגמים',val:total,color:'#1565c0'},
+          {icon:'🔩',label:'חלקים',val:totalParts.toLocaleString(),color:'#2e7d32'},
+          {icon:'🏷️',label:'מותגים',val:data.brands.length,color:'#6a1b9a'},
+        ].map(s=>(
+          <div key={s.label} style={{background:'#fff',borderRadius:12,padding:'12px 18px',flex:'1 1 100px',boxShadow:'0 1px 4px rgba(0,0,0,.07)',display:'flex',alignItems:'center',gap:10}}>
+            <span style={{fontSize:26}}>{s.icon}</span>
+            <div><div style={{fontSize:20,fontWeight:'bold',color:s.color}}>{s.val}</div>
+            <div style={{fontSize:11,color:'#aaa'}}>{s.label}</div></div>
+          </div>
+        ))}
       </div>
-      {data.brands.map(b=>{
-        const hasAny=b.categories.some(c=>c.models.length>0);
-        return(
-          <div key={b.id} style={{marginBottom:24}}>
-            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
-              <div style={{background:b.color,color:'#fff',padding:'4px 16px',borderRadius:20,fontWeight:'bold',fontSize:15}}>{b.name}</div>
-              <div style={{height:2,flex:1,background:`linear-gradient(to left,transparent,${b.color}44)`}}/>
-            </div>
-            {!hasAny&&<div style={{color:'#ccc',fontSize:13,paddingRight:8}}>אין דגמים עדיין</div>}
-            {b.categories.map(c=>c.models.length>0&&(
-              <div key={c.id} style={{marginBottom:14}}>
-                <div style={{color:'#888',fontSize:11,fontWeight:'bold',marginBottom:8,paddingRight:4}}>{c.name}</div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(148px,1fr))',gap:8}}>
-                  {c.models.map(m=>(
-                    <div key={m.id} onClick={()=>onNav(b.id,c.id,m.id)}
-                      style={{background:'#fff',borderRadius:10,padding:'12px 14px',cursor:'pointer',boxShadow:'0 1px 4px rgba(0,0,0,.07)',borderRight:`4px solid ${b.color}`,transition:'all .15s'}}
-                      onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 4px 14px rgba(0,0,0,.12)';e.currentTarget.style.transform='translateY(-2px)';}}
-                      onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 4px rgba(0,0,0,.07)';e.currentTarget.style.transform='';}}>
-                      <div style={{fontWeight:'bold',color:'#222',fontSize:13,marginBottom:3}}>{m.name}</div>
-                      {m.synonyms?.length>0&&<div style={{fontSize:10,color:'#bbb',marginBottom:4}}>{m.synonyms.join(' | ')}</div>}
-                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                        <span style={{fontSize:11,color:b.color,fontWeight:'bold'}}>{m.parts.length} חלקים</span>
-                        {(m.images||[]).length>0&&<span style={{fontSize:10,color:'#aaa'}}>📐×{(m.images||[]).length}</span>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+
+      {/* Recently viewed */}
+      {recentModels.length>0&&(
+        <div style={{marginBottom:24}}>
+          <div style={{fontWeight:'bold',fontSize:14,color:'#555',marginBottom:10}}>🕐 נצפו לאחרונה</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:8}}>
+            {recentModels.map(({b,c,m,ts})=>(
+              <div key={m.id} onClick={()=>onNav(b.id,c.id,m.id)}
+                style={{background:'#fff',borderRadius:10,padding:'12px 14px',cursor:'pointer',boxShadow:'0 1px 4px rgba(0,0,0,.07)',borderRight:`4px solid ${b.color}`,transition:'all .15s',position:'relative'}}
+                onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 4px 14px rgba(0,0,0,.12)';e.currentTarget.style.transform='translateY(-2px)';}}
+                onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 4px rgba(0,0,0,.07)';e.currentTarget.style.transform='';}}>
+                <div style={{fontSize:10,color:'#bbb',marginBottom:4}}>{fmtTime(ts)}</div>
+                <div style={{fontWeight:'bold',color:'#222',fontSize:13,marginBottom:2}}>{m.name}</div>
+                <div style={{fontSize:10,color:'#aaa',marginBottom:4}}>{b.name} · {c.name}</div>
+                <div style={{fontSize:11,color:b.color,fontWeight:'bold'}}>{m.parts.length} חלקים</div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Brand quick-access */}
+      <div style={{marginBottom:10,fontWeight:'bold',fontSize:14,color:'#555'}}>📁 לפי מותג</div>
+      {data.brands.map(b=>{
+        const modelCount=b.categories.reduce((s,c)=>s+c.models.length,0);
+        const isOpen=expandedBrand===b.id;
+        return(
+          <div key={b.id} style={{marginBottom:10,background:'#fff',borderRadius:12,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
+            {/* Brand header */}
+            <div onClick={()=>setExpandedBrand(isOpen?null:b.id)}
+              style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',cursor:'pointer',background:isOpen?b.color+'11':'#fff',borderBottom:isOpen?`2px solid ${b.color}`:'none'}}>
+              <div style={{background:b.color,color:'#fff',padding:'4px 14px',borderRadius:20,fontWeight:'bold',fontSize:14}}>{b.name}</div>
+              <span style={{color:'#aaa',fontSize:12}}>{modelCount} דגמים</span>
+              <span style={{marginRight:'auto',color:'#aaa',fontSize:13}}>{isOpen?'▲':'▼'}</span>
+            </div>
+            {/* Categories + models (expanded) */}
+            {isOpen&&(
+              <div style={{padding:'10px 16px 14px'}}>
+                {b.categories.filter(c=>c.models.length>0).map(c=>(
+                  <div key={c.id} style={{marginBottom:12}}>
+                    <div style={{fontSize:11,color:'#888',fontWeight:'bold',marginBottom:6}}>{c.name}</div>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:6}}>
+                      {c.models.map(m=>(
+                        <div key={m.id} onClick={()=>onNav(b.id,c.id,m.id)}
+                          style={{padding:'8px 12px',borderRadius:8,border:`1px solid ${b.color}33`,cursor:'pointer',background:b.light,transition:'all .1s'}}
+                          onMouseEnter={e=>e.currentTarget.style.background=b.color+'33'}
+                          onMouseLeave={e=>e.currentTarget.style.background=b.light}>
+                          <div style={{fontWeight:'bold',color:'#222',fontSize:12,marginBottom:2}}>{m.name}</div>
+                          <div style={{fontSize:10,color:b.color,fontWeight:'bold'}}>{m.parts.length} חלקים</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {!b.categories.some(c=>c.models.length>0)&&<div style={{color:'#ccc',fontSize:13}}>אין דגמים עדיין</div>}
+              </div>
+            )}
           </div>
         );
       })}
@@ -1071,7 +1170,8 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
         </div>
       </div>
 
-      {/* Images */}
+      {/* Images — hidden if no admin and no images */}
+      {(admin||(images.length>0))&&(
       <div style={{background:'#fff',borderRadius:12,padding:'14px 16px',marginBottom:12,boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,flexWrap:'wrap'}}>
           <span style={{fontWeight:'bold',fontSize:14}}>📐 שרטוטים טכניים</span>
@@ -1090,11 +1190,11 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
           </div>
         )}
         {images.length>0
-          ?<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))',gap:10}}>
+          ?<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:10}}>
              {images.map((img,idx)=>(
                <div key={idx} style={{position:'relative',borderRadius:8,overflow:'hidden',border:'2px solid #e0e0e0',background:'#fafafa'}}>
                  <img src={img} alt={`שרטוט ${idx+1}`} onClick={()=>onOpenImg(images,idx)}
-                   style={{width:'100%',height:140,objectFit:'contain',cursor:'zoom-in',display:'block'}}/>
+                   style={{width:'100%',height:130,objectFit:'contain',cursor:'zoom-in',display:'block'}}/>
                  <div style={{padding:'4px 8px',display:'flex',alignItems:'center',justifyContent:'space-between',background:'#f5f5f5',borderTop:'1px solid #eee'}}>
                    <span style={{fontSize:11,color:'#888'}}>תמונה {idx+1}</span>
                    {admin&&<button onClick={()=>{if(confirm('למחוק?'))onDelImg(idx);}} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13}}>🗑</button>}
@@ -1102,11 +1202,12 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
                </div>
              ))}
            </div>
-          :<div style={{textAlign:'center',padding:28,background:'#fafafa',borderRadius:8,border:'2px dashed #e0e0e0',color:'#ccc',fontSize:13}}>
-             {admin?'העלה שרטוטים טכניים':'אין שרטוטים'}
+          :<div style={{textAlign:'center',padding:24,background:'#fafafa',borderRadius:8,border:'2px dashed #e0e0e0',color:'#ccc',fontSize:13}}>
+             העלה שרטוטים טכניים
            </div>
         }
       </div>
+      )}
 
       {/* Parts */}
       <div style={{background:'#fff',borderRadius:12,padding:'14px 16px',boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
