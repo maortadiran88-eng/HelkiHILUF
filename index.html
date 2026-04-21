@@ -12,51 +12,57 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,sans-serif;background:#f0f2f5;direction:rtl}
+body{font-family:Arial,sans-serif;direction:rtl;background:var(--bg);color:var(--text);transition:background .25s,color .25s}
+:root{
+  --bg:#f0f2f5;--card:#fff;--text:#1a1a2a;--sub:#6b7280;
+  --border:#e5e7eb;--inp:#111;--row1:#fff;--row2:#f9fafb;
+  --hi:#fff9c4;--sel:#e8f5e9;--sidebar:#fff;--ibg:#fff;--shadow:rgba(0,0,0,.08);
+}
+.dark{
+  --bg:#0f172a;--card:#1e293b;--text:#f1f5f9;--sub:#94a3b8;
+  --border:#334155;--inp:#f1f5f9;--row1:#1e293b;--row2:#0f172a;
+  --hi:#3d3510;--sel:#14532d;--sidebar:#1e293b;--ibg:#334155;--shadow:rgba(0,0,0,.4);
+}
 ::-webkit-scrollbar{width:6px;height:6px}
-::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes fadeIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+input,textarea,select{font-family:Arial,sans-serif}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script>
-const firebaseConfig={
+firebase.initializeApp({
   apiKey:"AIzaSyA5SsSCkhQg1R5bi5FitJeB9uzrNm-1L8o",
   authDomain:"helkey-hiluf.firebaseapp.com",
   projectId:"helkey-hiluf",
   storageBucket:"helkey-hiluf.firebasestorage.app",
   messagingSenderId:"622794251696",
   appId:"1:622794251696:web:aafcaf67b729d653de4a75"
-};
-firebase.initializeApp(firebaseConfig);
+});
 window._db=firebase.firestore();
 </script>
 <script type="text/babel">
 const {useState,useEffect,useRef,useMemo}=React;
 const db=window._db;
+const SEP='§§§';
 
 const gid=()=>Math.random().toString(36).substr(2,9);
 const DCOLS=()=>[
-  {id:'ref',name:'מספר זיהוי'},
-  {id:'nameHe',name:'שם בעברית'},
-  {id:'nameEn',name:'Part Name'},
-  {id:'mfgPn',name:'מק"ט יצרן'},
-  {id:'tadPn',name:'מק"ט תדיראן'},
+  {id:'ref',name:'מספר זיהוי'},{id:'nameHe',name:'שם בעברית'},
+  {id:'nameEn',name:'Part Name'},{id:'mfgPn',name:'מק"ט יצרן'},{id:'tadPn',name:'מק"ט תדיראן'},
 ];
 const DCATS=()=>[
-  {id:gid(),name:'יחידה פנימית',models:[]},
-  {id:gid(),name:'יחידה חיצונית',models:[]},
-  {id:gid(),name:'חימום מים',models:[]},
-  {id:gid(),name:'בקרים',models:[]},
+  {id:gid(),name:'יחידה פנימית',models:[]},{id:gid(),name:'יחידה חיצונית',models:[]},
+  {id:gid(),name:'חימום מים',models:[]},{id:gid(),name:'בקרים',models:[]},
 ];
 const INIT=()=>({
-  pass:'admin1234',
+  pass:'admin1234',editorPass:'editor1234',
   brands:[
     {id:'gree',name:'GREE',color:'#1565c0',light:'#e3f2fd',categories:[
       {id:'gi0',name:'יחידה פנימית',models:[
-        {id:'demo1',name:'GWH12ACC',synonyms:['GWH12ACC-K6DNA1A'],images:[],columns:DCOLS(),parts:[
+        {id:'demo1',name:'GWH12ACC',synonyms:['GWH12ACC-K6DNA1A'],images:[],notes:'',columns:DCOLS(),parts:[
           {id:'dp1',values:{ref:'1',nameHe:'מנוע מאוורר',nameEn:'Fan Motor',mfgPn:'GM120023',tadPn:'TD-1001'}},
           {id:'dp2',values:{ref:'2',nameHe:'לוח אלקטרוני',nameEn:'Control Board',mfgPn:'CB340012',tadPn:'TD-1002'}},
         ]}
@@ -66,127 +72,81 @@ const INIT=()=>({
       {id:'gi3',name:'בקרים',models:[]},
     ]},
     {id:'toshiba',name:'TOSHIBA',color:'#c62828',light:'#ffebee',categories:[
-      {id:'ti0',name:'יחידה פנימית',models:[]},
-      {id:'ti1',name:'יחידה חיצונית',models:[]},
-      {id:'ti2',name:'חימום מים',models:[]},
-      {id:'ti3',name:'בקרים',models:[]},
+      {id:'ti0',name:'יחידה פנימית',models:[]},{id:'ti1',name:'יחידה חיצונית',models:[]},
+      {id:'ti2',name:'חימום מים',models:[]},{id:'ti3',name:'בקרים',models:[]},
     ]},
     {id:'prime',name:'PRIME',color:'#2e7d32',light:'#e8f5e9',categories:[
-      {id:'pi0',name:'יחידה פנימית',models:[]},
-      {id:'pi1',name:'יחידה חיצונית',models:[]},
-      {id:'pi2',name:'חימום מים',models:[]},
-      {id:'pi3',name:'בקרים',models:[]},
+      {id:'pi0',name:'יחידה פנימית',models:[]},{id:'pi1',name:'יחידה חיצונית',models:[]},
+      {id:'pi2',name:'חימום מים',models:[]},{id:'pi3',name:'בקרים',models:[]},
     ]},
   ]
 });
 
-function compressImage(file){
-  return new Promise(resolve=>{
-    const reader=new FileReader();
-    reader.onload=e=>{
-      const img=new Image();
-      img.onload=()=>{
-        const canvas=document.createElement('canvas');
-        let w=img.width,h=img.height,MAX=1200;
-        if(w>MAX||h>MAX){const r=Math.min(MAX/w,MAX/h);w=Math.round(w*r);h=Math.round(h*r);}
-        canvas.width=w;canvas.height=h;
-        canvas.getContext('2d').drawImage(img,0,0,w,h);
-        resolve(canvas.toDataURL('image/jpeg',0.72));
-      };
-      img.src=e.target.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-// ══ FIREBASE SPLIT SAVE/LOAD ══
-// meta doc: brands structure (no parts, no images)
-// parts/{modelId}: {parts,images,columns,synonyms}
+// ── FIREBASE ──
 async function fbLoad(){
-  const metaDoc=await db.collection('catalog').doc('meta').get();
-  if(!metaDoc.exists)return null;
-  const meta=metaDoc.data().d;
-  // collect all model IDs
-  const mids=[];
-  meta.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>mids.push(m.id))));
-  if(!mids.length)return meta;
-  // load parts in parallel (batches of 20 to avoid overload)
+  const meta=(await db.collection('catalog').doc('meta').get());
+  if(!meta.exists)return null;
+  const d=meta.data().d;
+  const mids=[];d.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>mids.push(m.id))));
+  if(!mids.length)return d;
   const chunks=[];for(let i=0;i<mids.length;i+=20)chunks.push(mids.slice(i,i+20));
-  const allDocs=[];
-  for(const chunk of chunks){
-    const docs=await Promise.all(chunk.map(id=>db.collection('parts').doc(id).get()));
-    allDocs.push(...docs);
-  }
-  const partsMap={};
-  allDocs.forEach(doc=>{if(doc.exists)partsMap[doc.id]=doc.data();});
-  // merge
-  meta.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
-    const pd=partsMap[m.id]||{};
-    m.parts=pd.parts||[];
-    m.images=pd.images||[];
-    m.columns=pd.columns||DCOLS();
-    m.synonyms=pd.synonyms||m.synonyms||[];
+  const allDocs=[];for(const ch of chunks){const docs=await Promise.all(ch.map(id=>db.collection('parts').doc(id).get()));allDocs.push(...docs);}
+  const pm={};allDocs.forEach(doc=>{if(doc.exists)pm[doc.id]=doc.data();});
+  d.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
+    const pd=pm[m.id]||{};
+    m.parts=pd.parts||[];m.images=pd.images||[];m.columns=pd.columns||DCOLS();m.synonyms=pd.synonyms||[];m.notes=pd.notes||'';
   })));
-  return meta;
+  return d;
 }
-
 async function fbSave(data,changedMids){
-  // save meta (no parts/images — only structure)
-  const meta={
-    pass:data.pass,
-    brands:data.brands.map(b=>({
-      ...b,
-      categories:b.categories.map(c=>({
-        ...c,
-        models:c.models.map(m=>({id:m.id,name:m.name}))
-      }))
-    }))
-  };
+  const meta={pass:data.pass,editorPass:data.editorPass||'editor1234',
+    brands:data.brands.map(b=>({...b,categories:b.categories.map(c=>({...c,models:c.models.map(m=>({id:m.id,name:m.name}))}))}))};
   await db.collection('catalog').doc('meta').set({d:meta});
-  // save changed model parts
   const batch=db.batch();
-  let batchCount=0;
-  const midsToSave=changedMids||new Set(
-    data.brands.flatMap(b=>b.categories.flatMap(c=>c.models.map(m=>m.id)))
-  );
   data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
-    if(!midsToSave.has(m.id))return;
-    batch.set(db.collection('parts').doc(m.id),{
-      parts:m.parts||[],
-      images:m.images||[],
-      columns:m.columns||DCOLS(),
-      synonyms:m.synonyms||[],
-    });
-    batchCount++;
-    if(batchCount>=490){throw new Error('יותר מדי שינויים בבת אחת — שמור שוב');}
+    if(!changedMids.has(m.id))return;
+    batch.set(db.collection('parts').doc(m.id),{parts:m.parts||[],images:m.images||[],columns:m.columns||DCOLS(),synonyms:m.synonyms||[],notes:m.notes||''});
   })));
   await batch.commit();
 }
+async function fbHist(entry){try{await db.collection('history').add({...entry,ts:firebase.firestore.FieldValue.serverTimestamp()});}catch{}}
+async function fbGetHist(){
+  try{const s=await db.collection('history').orderBy('ts','desc').limit(60).get();
+    return s.docs.map(d=>({id:d.id,...d.data(),ts:d.data().ts?.toDate?.()?.toLocaleString('he-IL')||''}));}
+  catch{return[];}
+}
 
-const updBrands=(brands,bid,cid,mid,fn)=>brands.map(b=>b.id!==bid?b:{
-  ...b,categories:b.categories.map(c=>c.id!==cid?c:{
-    ...c,models:c.models.map(m=>m.id!==mid?m:fn(m))
-  })
-});
+// ── HELPERS ──
+function compressImg(file){
+  return new Promise(res=>{
+    const r=new FileReader();r.onload=e=>{
+      const img=new Image();img.onload=()=>{
+        const c=document.createElement('canvas');let w=img.width,h=img.height,M=1200;
+        if(w>M||h>M){const r=Math.min(M/w,M/h);w=Math.round(w*r);h=Math.round(h*r);}
+        c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);res(c.toDataURL('image/jpeg',.72));
+      };img.src=e.target.result;};r.readAsDataURL(file);});
+}
+const updBrands=(brands,bid,cid,mid,fn)=>brands.map(b=>b.id!==bid?b:{...b,categories:b.categories.map(c=>c.id!==cid?c:{...c,models:c.models.map(m=>m.id!==mid?m:fn(m))})});
 
+// ── STYLE ATOMS ──
 const bB=bg=>({background:bg,border:'none',color:'#fff',padding:'7px 11px',borderRadius:7,cursor:'pointer',fontSize:12,fontWeight:'bold',whiteSpace:'nowrap',flexShrink:0});
 const sB=bg=>({background:bg,border:'none',color:'#fff',padding:'4px 10px',borderRadius:5,cursor:'pointer',fontSize:11,whiteSpace:'nowrap'});
 const BPr=bg=>({background:bg,border:'none',color:'#fff',padding:'10px 0',borderRadius:8,cursor:'pointer',fontWeight:'bold',fontSize:14});
-const BST={background:'#eee',border:'none',color:'#333',padding:'10px 0',borderRadius:8,cursor:'pointer',fontSize:14};
-const INS={width:'100%',padding:'10px 14px',borderRadius:8,border:'1px solid #ddd',fontSize:14,boxSizing:'border-box',textAlign:'right',color:'#333',outline:'none',display:'block'};
+const BST={background:'var(--border)',border:'none',color:'var(--text)',padding:'10px 0',borderRadius:8,cursor:'pointer',fontSize:14};
+const INS={width:'100%',padding:'10px 14px',borderRadius:8,border:'1px solid var(--border)',fontSize:14,boxSizing:'border-box',textAlign:'right',color:'var(--inp)',outline:'none',display:'block',background:'var(--ibg)'};
 
 function Modal({children,onClose,wide,title}){
   return(
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:800,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
-      <div style={{background:'#fff',borderRadius:14,padding:24,width:'100%',maxWidth:wide?600:380,maxHeight:'92vh',overflowY:'auto',animation:'fadeIn .15s'}} dir="rtl" onClick={e=>e.stopPropagation()}>
-        {title&&<div style={{fontWeight:'bold',fontSize:17,marginBottom:16,borderBottom:'1px solid #eee',paddingBottom:12}}>{title}</div>}
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',zIndex:800,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
+      <div style={{background:'var(--card)',borderRadius:14,padding:24,width:'100%',maxWidth:wide?620:390,maxHeight:'92vh',overflowY:'auto',animation:'fadeIn .15s',color:'var(--text)'}} dir="rtl" onClick={e=>e.stopPropagation()}>
+        {title&&<div style={{fontWeight:'bold',fontSize:17,marginBottom:16,borderBottom:'1px solid var(--border)',paddingBottom:12}}>{title}</div>}
         {children}
       </div>
     </div>
   );
 }
 
-// ══════════ APP ══════════
+// ══════════════ APP ══════════════
 function App(){
   const[data,setData]=useState(null);
   const[loaded,setLoaded]=useState(false);
@@ -194,53 +154,42 @@ function App(){
   const[saveErr,setSaveErr]=useState('');
   const[showErr,setShowErr]=useState(false);
   const[sel,setSel]=useState(null);
-  const[admin,setAdmin]=useState(false);
+  const[role,setRole]=useState(null); // null | 'editor' | 'admin'
   const[pwdDlg,setPwdDlg]=useState(false);
-  const[pwdIn,setPwdIn]=useState('');
-  const[pwdErr,setPwdErr]=useState('');
   const[query,setQuery]=useState('');
   const[sidebar,setSidebar]=useState(false);
-  const headerRef=useRef(null);
+  const[dark,setDark]=useState(()=>localStorage.getItem('ac_dark')==='1');
   const[imgModal,setImgModal]=useState({imgs:[],idx:0});
   const[imgZoom,setImgZoom]=useState(1);
   const[brandMgr,setBrandMgr]=useState(false);
   const[chPwd,setChPwd]=useState(false);
-  const[showXlsImport,setShowXlsImport]=useState(false);
+  const[showXls,setShowXls]=useState(false);
   const[showBulkMove,setShowBulkMove]=useState(false);
-  const[showBulkDelete,setShowBulkDelete]=useState(false);
-  const[recentlyViewed,setRecentlyViewed]=useState(()=>{try{return JSON.parse(localStorage.getItem('ac_recent')||'[]');}catch{return [];}});
+  const[showBulkDel,setShowBulkDel]=useState(false);
+  const[showHistory,setShowHistory]=useState(false);
+  const[histData,setHistData]=useState([]);
+  const[favorites,setFavorites]=useState(()=>{try{return new Set(JSON.parse(localStorage.getItem('ac_fav')||'[]'));}catch{return new Set();}});
+  const[recent,setRecent]=useState(()=>{try{return JSON.parse(localStorage.getItem('ac_recent')||'[]');}catch{return[];}});
+  const[searches,setSearches]=useState(()=>{try{return JSON.parse(localStorage.getItem('ac_searches')||'[]');}catch{return[];}});
   const[now,setNow]=useState(new Date());
-  const[history,setHistory]=useState([]);// navigation history stack
-
-  useEffect(()=>{const t=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(t);},[]);
   const saveTimer=useRef(null);
   const firstLoad=useRef(true);
   const changedMids=useRef(new Set());
+  const navStack=useRef([]);
+  const headerRef=useRef(null);
+  const admin=role==='admin', editor=role==='editor'||role==='admin';
 
-  // ── LOAD ──
-  useEffect(()=>{
-    fbLoad()
-      .then(d=>{setData(d||INIT());setLoaded(true);})
-      .catch(e=>{setSaveErr('שגיאת טעינה: '+e.message);setData(INIT());setLoaded(true);});
-  },[]);
-
-  // ── AUTO-SAVE (debounced 2.5s) ──
+  useEffect(()=>{document.documentElement.className=dark?'dark':'';},[dark]);
+  useEffect(()=>{document.body.style.background='var(--bg)';},[dark]);
+  useEffect(()=>{const t=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(t);},[]);
+  useEffect(()=>{fbLoad().then(d=>{setData(d||INIT());setLoaded(true);}).catch(()=>{setData(INIT());setLoaded(true);});},[]);
   useEffect(()=>{
     if(!loaded||!data)return;
     if(firstLoad.current){firstLoad.current=false;return;}
-    setSaving('saving');
-    clearTimeout(saveTimer.current);
+    setSaving('saving');clearTimeout(saveTimer.current);
     saveTimer.current=setTimeout(async()=>{
-      try{
-        await fbSave(data,changedMids.current);
-        changedMids.current=new Set();
-        setSaving('saved');setSaveErr('');
-        setTimeout(()=>setSaving(''),3000);
-      }catch(e){
-        console.error(e);
-        setSaving('error');
-        setSaveErr(e.message||JSON.stringify(e));
-      }
+      try{await fbSave(data,changedMids.current);changedMids.current=new Set();setSaving('saved');setSaveErr('');setTimeout(()=>setSaving(''),3000);}
+      catch(e){setSaving('error');setSaveErr(e.message||String(e));}
     },2500);
   },[data,loaded]);
 
@@ -253,277 +202,162 @@ function App(){
     const q=query.trim().toLowerCase();if(!q)return[];
     const res=[];const seen=new Set();
     data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
-      const matchedSyn=m.synonyms?.find(s=>s.toLowerCase().includes(q));
-      const mh=m.name.toLowerCase().includes(q)||!!matchedSyn;
+      const ms=m.synonyms?.find(s=>s.toLowerCase().includes(q));
+      const mh=m.name.toLowerCase().includes(q)||!!ms;
       const ph=m.parts.filter(p=>Object.values(p.values).some(v=>String(v).toLowerCase().includes(q)));
-      if((mh||ph.length)&&!seen.has(m.id)){seen.add(m.id);res.push({b,c,m,ph,matchedSyn:matchedSyn||null});}
+      if((mh||ph.length)&&!seen.has(m.id)){seen.add(m.id);res.push({b,c,m,ph,ms:ms||null});}
     })));
     return res;
   },[query,data]);
 
+  const topSearches=useMemo(()=>{
+    const c={};searches.forEach(s=>{c[s.q]=(c[s.q]||0)+1;});
+    return Object.entries(c).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  },[searches]);
+
   const nav=(bid,cid,mid,hq='')=>{
-    // push current to history before navigating
-    if(sel)setHistory(h=>[...h.slice(-9),sel]);
+    if(sel)navStack.current=[...navStack.current.slice(-9),sel];
     setSel({bid,cid,mid,hq});setQuery('');
-    // track recently viewed
-    if(mid){
-      setRecentlyViewed(prev=>{
-        const entry={bid,cid,mid,ts:Date.now()};
-        const filtered=prev.filter(x=>x.mid!==mid).slice(0,11);
-        const next=[entry,...filtered];
-        try{localStorage.setItem('ac_recent',JSON.stringify(next));}catch{}
-        return next;
-      });
-    }
+    setRecent(p=>{const e={bid,cid,mid,ts:Date.now()};const f=p.filter(x=>x.mid!==mid).slice(0,11);const n=[e,...f];try{localStorage.setItem('ac_recent',JSON.stringify(n));}catch{}return n;});
     if(window.innerWidth<700)setSidebar(false);
   };
-  const goBack=()=>{
-    if(history.length>0){const prev=history[history.length-1];setHistory(h=>h.slice(0,-1));setSel(prev);}
-    else goHome();
-  };
-  const goHome=()=>{setSel(null);setQuery('');setHistory([]);};
+  const goBack=()=>{if(navStack.current.length>0){const p=navStack.current.pop();setSel(p);}else{setSel(null);}};
+  const goHome=()=>{setSel(null);setQuery('');navStack.current=[];};
 
   const mut=fn=>setData(d=>fn(d));
-  const mutM=(bid,cid,mid,fn)=>{
-    changedMids.current.add(mid);
-    mut(d=>({...d,brands:updBrands(d.brands,bid,cid,mid,fn)}));
-  };
+  const mutM=(bid,cid,mid,fn)=>{changedMids.current.add(mid);mut(d=>({...d,brands:updBrands(d.brands,bid,cid,mid,fn)}));};
 
-  const tryLogin=()=>{
-    if(pwdIn===data.pass){setAdmin(true);setPwdDlg(false);setPwdIn('');setPwdErr('');}
-    else setPwdErr('סיסמה שגויה');
-  };
+  const toggleDark=()=>setDark(v=>{localStorage.setItem('ac_dark',v?'0':'1');return!v;});
+  const toggleFav=mid=>setFavorites(p=>{const n=new Set(p);n.has(mid)?n.delete(mid):n.add(mid);try{localStorage.setItem('ac_fav',JSON.stringify([...n]));}catch{}return n;});
+  const trackSearch=(q,mid)=>setSearches(p=>{const e={q:q.trim().toLowerCase(),mid,ts:Date.now()};const n=[e,...p.filter(x=>!(x.q===e.q&&x.mid===mid)).slice(0,99)];try{localStorage.setItem('ac_searches',JSON.stringify(n));}catch{}return n;});
 
-  const handleImgUpload=async(e,bid,cid,mid)=>{
-    const files=Array.from(e.target.files);if(!files.length)return;
-    const b64arr=await Promise.all(files.map(compressImage));
-    mutM(bid,cid,mid,m=>({...m,images:[...(m.images||[]),...b64arr]}));
-  };
+  const handleImgUpload=async(e,bid,cid,mid)=>{const files=Array.from(e.target.files);if(!files.length)return;const b64=await Promise.all(files.map(compressImg));mutM(bid,cid,mid,m=>({...m,images:[...(m.images||[]),...b64]}));};
 
-  // ── MOVE SINGLE MODEL ──
-  const moveModel=(fromBid,fromCid,mid,toBid,toCid)=>{
+  const moveModel=(fBid,fCid,mid,toBid,toCid)=>{
     let moved=null;
-    mut(d=>{
-      const brands=d.brands.map(b=>{
-        if(b.id!==fromBid)return b;
-        return{...b,categories:b.categories.map(c=>{
-          if(c.id!==fromCid)return c;
-          moved=c.models.find(m=>m.id===mid);
-          return{...c,models:c.models.filter(m=>m.id!==mid)};
-        })};
-      });
-      if(!moved)return d;
-      return{...d,brands:brands.map(b=>b.id!==toBid?b:{
-        ...b,categories:b.categories.map(c=>c.id!==toCid?c:{...c,models:[...c.models,moved]})
-      })};
-    });
-    changedMids.current.add(mid);
-    setSel(s=>({...s,bid:toBid,cid:toCid}));
+    mut(d=>{const brands=d.brands.map(b=>{if(b.id!==fBid)return b;return{...b,categories:b.categories.map(c=>{if(c.id!==fCid)return c;moved=c.models.find(m=>m.id===mid);return{...c,models:c.models.filter(m=>m.id!==mid)};})};});
+      if(!moved)return d;return{...d,brands:brands.map(b=>b.id!==toBid?b:{...b,categories:b.categories.map(c=>c.id!==toCid?c:{...c,models:[...c.models,moved]})})};});
+    changedMids.current.add(mid);setSel(s=>({...s,bid:toBid,cid:toCid}));
+    fbHist({action:'העבר דגם',model:moved?.name||mid,role});
   };
-
-  // ── BULK MOVE MODELS ──
-  const bulkMoveModels=(selections,toBid,toCid)=>{
-    // selections: [{bid,cid,mid}]
-    mut(d=>{
-      let movedModels=[];
-      let brands=d.brands.map(b=>({
-        ...b,categories:b.categories.map(c=>({
-          ...c,models:c.models.filter(m=>{
-            const isSel=selections.some(s=>s.mid===m.id&&s.bid===b.id&&s.cid===c.id);
-            if(isSel)movedModels.push(m);
-            return !isSel;
-          })
-        }))
-      }));
-      brands=brands.map(b=>b.id!==toBid?b:{
-        ...b,categories:b.categories.map(c=>c.id!==toCid?c:{...c,models:[...c.models,...movedModels]})
-      });
-      return{...d,brands};
-    });
-    selections.forEach(s=>changedMids.current.add(s.mid));
+  const bulkMoveModels=(sels,toBid,toCid)=>{
+    mut(d=>{let moved=[];let brands=d.brands.map(b=>({...b,categories:b.categories.map(c=>({...c,models:c.models.filter(m=>{const s=sels.some(x=>x.mid===m.id&&x.bid===b.id&&x.cid===c.id);if(s)moved.push(m);return!s;})}))}));
+      brands=brands.map(b=>b.id!==toBid?b:{...b,categories:b.categories.map(c=>c.id!==toCid?c:{...c,models:[...c.models,...moved]})});return{...d,brands};});
+    sels.forEach(s=>changedMids.current.add(s.mid));
+    fbHist({action:'העברה מרובה',count:sels.length,role});
   };
-
+  const bulkDeleteModels=async(sels)=>{
+    if(!confirm(`למחוק ${sels.length} דגמים לצמיתות?`))return;
+    try{await Promise.all(sels.map(s=>db.collection('parts').doc(s.mid).delete().catch(()=>{})));}catch{}
+    mut(d=>({...d,brands:d.brands.map(b=>({...b,categories:b.categories.map(c=>({...c,models:c.models.filter(m=>!sels.some(s=>s.mid===m.id&&s.bid===b.id&&s.cid===c.id))}))}))})  );
+    if(sels.some(s=>s.mid===sel?.mid))setSel(null);
+    fbHist({action:'מחיקה מרובה',count:sels.length,role});
+  };
   const duplicateModel=(bid,cid,mid)=>{
-    const orig=data.brands.find(b=>b.id===bid)?.categories.find(c=>c.id===cid)?.models.find(m=>m.id===mid);
-    if(!orig)return;
-    const newId=gid();
+    const orig=data.brands.find(b=>b.id===bid)?.categories.find(c=>c.id===cid)?.models.find(m=>m.id===mid);if(!orig)return;
+    const newId=gid();changedMids.current.add(newId);
     const dup={...JSON.parse(JSON.stringify(orig)),id:newId,name:orig.name+' (עותק)',synonyms:[]};
-    changedMids.current.add(newId);
-    mut(d=>({...d,brands:d.brands.map(b=>b.id!==bid?b:{
-      ...b,categories:b.categories.map(c=>c.id!==cid?c:{...c,models:[...c.models,dup]})
-    })}));
+    mut(d=>({...d,brands:d.brands.map(b=>b.id!==bid?b:{...b,categories:b.categories.map(c=>c.id!==cid?c:{...c,models:[...c.models,dup]})})}));
   };
-
   const copyPartsFrom=(sb,sc,sm,db2,dc,dm)=>{
-    const srcModel=data.brands.find(b=>b.id===sb)?.categories.find(c=>c.id===sc)?.models.find(m=>m.id===sm);
-    if(!srcModel)return;
-    changedMids.current.add(dm);
-    mutM(db2,dc,dm,m=>({...m,parts:[...m.parts,...srcModel.parts.map(p=>({...p,id:gid()}))]}));
+    const srcM=data.brands.find(b=>b.id===sb)?.categories.find(c=>c.id===sc)?.models.find(m=>m.id===sm);if(!srcM)return;
+    changedMids.current.add(dm);mutM(db2,dc,dm,m=>({...m,parts:[...m.parts,...srcM.parts.map(p=>({...p,id:gid()}))]}));
   };
-
-  // ── IMPORT FROM EXCEL ──
-  const importFromXls=(rows,colMap,targetBid,targetCid,excludedModels)=>{
+  const importFromXls=(rows,colMap,tBid,tCid,excluded)=>{
     const grouped={};
-    rows.forEach(r=>{
-      const mn=String(r[colMap.model]||'').trim();if(!mn||excludedModels.has(mn))return;
-      if(!grouped[mn])grouped[mn]=[];
-      grouped[mn].push(r);
-    });
-    let totalParts=0;
-    mut(d=>{
-      const brands=d.brands.map(b=>{
-        if(b.id!==targetBid)return b;
-        return{...b,categories:b.categories.map(c=>{
-          if(c.id!==targetCid)return c;
-          let models=[...c.models];
-          Object.entries(grouped).forEach(([modelName,partRows])=>{
-            let m=models.find(x=>x.name===modelName);
-            const newId=m?m.id:gid();
-            if(!m){m={id:newId,name:modelName,synonyms:[],images:[],columns:DCOLS(),parts:[]};models.push(m);}
-            const newParts=partRows.map(r=>({id:gid(),values:{
-              ref:'',
-              nameHe:String(r[colMap.nameHe]||'').trim(),
-              nameEn:String(r[colMap.nameEn]||'').trim(),
-              mfgPn:String(r[colMap.mfgPn]||'').trim(),
-              tadPn:String(r[colMap.tadPn]||'').trim(),
-            }}));
-            totalParts+=newParts.length;
-            changedMids.current.add(newId);
-            models=models.map(x=>x.name===modelName?{...x,parts:[...x.parts,...newParts]}:x);
-          });
-          return{...c,models};
-        })};
-      });
-      return{...d,brands};
-    });
-    return{models:Object.keys(grouped).length,parts:totalParts};
+    rows.forEach(r=>{const mn=String(r[colMap.model]||'').trim();if(!mn||excluded.has(mn))return;if(!grouped[mn])grouped[mn]=[];grouped[mn].push(r);});
+    let total=0;
+    mut(d=>{const brands=d.brands.map(b=>{if(b.id!==tBid)return b;return{...b,categories:b.categories.map(c=>{if(c.id!==tCid)return c;
+      let models=[...c.models];
+      Object.entries(grouped).forEach(([mn,pRows])=>{let m=models.find(x=>x.name===mn);const newId=m?m.id:gid();
+        if(!m){m={id:newId,name:mn,synonyms:[],images:[],notes:'',columns:DCOLS(),parts:[]};models.push(m);}
+        const np=pRows.map(r=>({id:gid(),values:{ref:'',nameHe:String(r[colMap.nameHe]||'').trim(),nameEn:String(r[colMap.nameEn]||'').trim(),mfgPn:String(r[colMap.mfgPn]||'').trim(),tadPn:String(r[colMap.tadPn]||'').trim()}}));
+        total+=np.length;changedMids.current.add(newId);
+        models=models.map(x=>x.name===mn?{...x,parts:[...x.parts,...np]}:x);
+      });return{...c,models};})};});return{...d,brands};});
+    fbHist({action:'ייבוא Excel',models:Object.keys(grouped).length,parts:total,role});
+    return{models:Object.keys(grouped).length,parts:total};
   };
-
-  // ── BULK DELETE ──
-  const bulkDeleteModels=async(selections)=>{
-    if(!confirm(`למחוק ${selections.length} דגמים לצמיתות?`))return;
-    try{
-      await Promise.all(selections.map(s=>db.collection('parts').doc(s.mid).delete().catch(()=>{})));
-    }catch{}
-    mut(d=>({...d,brands:d.brands.map(b=>({
-      ...b,categories:b.categories.map(c=>({
-        ...c,models:c.models.filter(m=>!selections.some(s=>s.mid===m.id&&s.bid===b.id&&s.cid===c.id))
-      }))
-    }))}));
-    if(selections.some(s=>s.mid===sel?.mid))setSel(null);
-  };
-  const expXLS=()=>{
-    if(!data)return;
-    const wb=XLSX.utils.book_new();
-    const all=[['מותג','קטגוריה','דגם','מספר זיהוי','שם בעברית','Part Name','מק"ט יצרן','מק"ט תדיראן']];
-    data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
-      if(!m.parts.length)return;
+  const expXLS=()=>{if(!data)return;const wb=XLSX.utils.book_new();const all=[['מותג','קטגוריה','דגם','מספר זיהוי','שם בעברית','Part Name','מק"ט יצרן','מק"ט תדיראן']];
+    data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{if(!m.parts.length)return;
       const ws=XLSX.utils.aoa_to_sheet([m.columns.map(cl=>cl.name),...m.parts.map(p=>m.columns.map(cl=>p.values[cl.id]||''))]);
       XLSX.utils.book_append_sheet(wb,ws,`${b.name}-${m.name}`.slice(0,31));
       m.parts.forEach(p=>all.push([b.name,c.name,m.name,...m.columns.map(cl=>p.values[cl.id]||'')]));
     })));
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(all),'כל הנתונים');
-    XLSX.writeFile(wb,'ac-parts.xlsx');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(all),'כל הנתונים');XLSX.writeFile(wb,'ac-parts.xlsx');
   };
-  const expJSON=()=>{
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
-    a.download=`ac-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();
-  };
-  const impFile=e=>{
-    const f=e.target.files[0];if(!f)return;
-    const r=new FileReader();
-    r.onload=ev=>{
-      try{
-        const d=JSON.parse(ev.target.result);
-        // mark all models as changed
-        d.brands?.forEach(b=>b.categories?.forEach(c=>c.models?.forEach(m=>changedMids.current.add(m.id))));
-        setData(d);setSel(null);alert('✅ נטען בהצלחה');
-      }catch{alert('❌ שגיאה בקובץ');}
-    };
-    r.readAsText(f);e.target.value='';
-  };
+  const expJSON=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));a.download=`ac-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();};
+  const impFile=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{const d=JSON.parse(ev.target.result);d.brands?.forEach(b=>b.categories?.forEach(c=>c.models?.forEach(m=>changedMids.current.add(m.id))));setData(d);setSel(null);alert('✅ נטען');}catch{alert('❌ שגיאה');}};r.readAsText(f);e.target.value='';};
 
-  const openImgModal=(imgs,idx=0)=>{setImgModal({imgs,idx});setImgZoom(1);};
-
-  if(!loaded)return(
-    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:16}}>
-      <div style={{fontSize:52}}>🔧</div>
-      <div style={{fontSize:17,color:'#555'}}>מתחבר ל-Firebase...</div>
-      <div style={{width:40,height:40,border:'4px solid #e0e0e0',borderTop:'4px solid #1565c0',borderRadius:'50%',animation:'spin 0.9s linear infinite'}}/>
-    </div>
-  );
+  if(!loaded)return(<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:16}}>
+    <div style={{fontSize:52}}>🔧</div><div style={{fontSize:17,color:'var(--sub)'}}>מתחבר...</div>
+    <div style={{width:40,height:40,border:'4px solid var(--border)',borderTop:'4px solid #1565c0',borderRadius:'50%',animation:'spin .9s linear infinite'}}/>
+  </div>);
 
   const hdrBg=brand?.color||'#37474f';
 
   return(
-    <div dir="rtl" style={{fontFamily:'Arial,sans-serif',minHeight:'100vh',background:'#f0f2f5',display:'flex',flexDirection:'column',fontSize:14}}>
+    <div dir="rtl" style={{fontFamily:'Arial,sans-serif',minHeight:'100vh',background:'var(--bg)',display:'flex',flexDirection:'column',fontSize:14,color:'var(--text)'}}>
 
       {/* ── HEADER ── */}
       <header ref={headerRef} style={{background:hdrBg,color:'#fff',padding:'10px 12px',display:'flex',alignItems:'center',gap:7,boxShadow:'0 2px 8px rgba(0,0,0,.25)',position:'sticky',top:0,zIndex:200,flexWrap:'wrap',transition:'background .3s'}}>
         <button onClick={()=>setSidebar(v=>!v)} style={bB('rgba(255,255,255,.2)')}>☰</button>
-        <button onClick={goHome} title="מסך הבית" style={{...bB('rgba(255,255,255,.2)'),fontSize:16}}>🏠</button>
-        {sel&&<button onClick={goBack} title="חזור" style={{...bB('rgba(255,255,255,.2)'),fontSize:15}}>◀ חזור</button>}
-        <span style={{fontWeight:'bold',fontSize:15,flexShrink:0}}>🔧 חלקי חילוף</span>
-        {/* Clock */}
+        <button onClick={goHome} style={{...bB('rgba(255,255,255,.2)'),fontSize:16}}>🏠</button>
+        {sel&&<button onClick={goBack} style={bB('rgba(255,255,255,.2)')}>◀ חזור</button>}
+        <span style={{fontWeight:'bold',fontSize:14,flexShrink:0}}>🔧 חלקי חילוף</span>
         <span style={{fontSize:11,color:'rgba(255,255,255,.75)',flexShrink:0,fontFamily:'monospace'}}>
           {now.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'})} {now.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}
         </span>
-
-        {/* Save indicator */}
         {saving==='saving'&&<span style={{fontSize:11,color:'rgba(255,255,255,.8)',flexShrink:0}}>💾 שומר...</span>}
-        {saving==='saved' &&<span style={{fontSize:11,color:'#a5d6a7',flexShrink:0}}>✓ נשמר בענן</span>}
-        {saving==='error' &&(
-          <button onClick={()=>setShowErr(true)}
-            style={{fontSize:11,color:'#fff',background:'#e53935',border:'none',borderRadius:5,padding:'3px 8px',cursor:'pointer',flexShrink:0}}>
-            ⚠ שגיאה — לחץ לפרטים
-          </button>
-        )}
-
+        {saving==='saved'&&<span style={{fontSize:11,color:'#a5d6a7',flexShrink:0}}>✓ נשמר</span>}
+        {saving==='error'&&<button onClick={()=>setShowErr(true)} style={{fontSize:11,color:'#fff',background:'#e53935',border:'none',borderRadius:5,padding:'3px 8px',cursor:'pointer',flexShrink:0}}>⚠ שגיאה</button>}
         {/* Search */}
-        <div style={{flex:'1 1 140px',position:'relative',minWidth:100}}>
+        <div style={{flex:'1 1 130px',position:'relative',minWidth:90}}>
           <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="🔍 חיפוש..."
-            style={{width:'100%',padding:'7px 34px 7px 12px',borderRadius:20,border:'none',fontSize:13,outline:'none',color:'#222',background:'#fff'}}/>
-          {query&&<button onClick={()=>setQuery('')} style={{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#999',fontSize:16}}>✕</button>}
+            style={{width:'100%',padding:'7px 28px 7px 10px',borderRadius:20,border:'none',fontSize:13,outline:'none',color:'#222',background:'#fff'}}/>
+          {query&&<button onClick={()=>setQuery('')} style={{position:'absolute',left:6,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#999',fontSize:15}}>✕</button>}
         </div>
-
-        <button onClick={()=>admin?setAdmin(false):setPwdDlg(true)} style={{...bB(admin?'#f57c00':'rgba(255,255,255,.2)'),fontWeight:'bold'}}>
-          {admin?'🔓 עריכה':'🔒 כניסה'}
+        {/* Auth */}
+        <button onClick={()=>role?setRole(null):setPwdDlg(true)} style={{...bB(role?'#f57c00':'rgba(255,255,255,.2)'),fontWeight:'bold'}}>
+          {role==='admin'?'🔓 מנהל':role==='editor'?'✏️ עורך':'🔒 כניסה'}
         </button>
-        {admin&&<button onClick={()=>setBrandMgr(true)} style={bB('rgba(255,255,255,.2)')}>⚙ מותגים</button>}
-        {admin&&<button onClick={()=>setShowBulkMove(true)} style={bB('rgba(255,255,255,.2)')}>🔀 העברה מרובה</button>}
-        {admin&&<button onClick={()=>setShowBulkDelete(true)} style={bB('#b71c1c')}>🗑 מחיקה מרובה</button>}
-        {admin&&<button onClick={()=>setChPwd(true)}    style={bB('rgba(255,255,255,.2)')}>🔑 סיסמה</button>}
-        {admin&&<button onClick={expXLS}                style={bB('rgba(255,255,255,.2)')}>📊 Excel</button>}
-        {admin&&<button onClick={expJSON}               style={bB('rgba(255,255,255,.2)')}>💾 גיבוי</button>}
-        {admin&&<label  style={{...bB('rgba(255,255,255,.2)'),cursor:'pointer'}}>📂 טעינה<input type="file" accept=".json" onChange={impFile} style={{display:'none'}}/></label>}
-        {admin&&<button onClick={()=>setShowXlsImport(true)} style={bB('#00796b')}>📥 ייבא Excel</button>}
+        <button onClick={toggleDark} style={bB('rgba(255,255,255,.2)')} title="מצב כהה">{dark?'☀️':'🌙'}</button>
+        {admin&&<button onClick={()=>setBrandMgr(true)} style={bB('rgba(255,255,255,.2)')}>⚙</button>}
+        {admin&&<button onClick={()=>setShowBulkMove(true)} style={bB('rgba(255,255,255,.2)')}>🔀 העבר</button>}
+        {admin&&<button onClick={()=>setShowBulkDel(true)} style={bB('#b71c1c')}>🗑 מחק</button>}
+        {admin&&<button onClick={()=>{setShowHistory(true);fbGetHist().then(setHistData);}} style={bB('rgba(255,255,255,.2)')}>📋 לוג</button>}
+        {admin&&<button onClick={()=>setChPwd(true)} style={bB('rgba(255,255,255,.2)')}>🔑</button>}
+        {admin&&<button onClick={expXLS} style={bB('rgba(255,255,255,.2)')}>📊</button>}
+        {admin&&<button onClick={expJSON} style={bB('rgba(255,255,255,.2)')}>💾</button>}
+        {admin&&<label style={{...bB('rgba(255,255,255,.2)'),cursor:'pointer'}}>📂<input type="file" accept=".json" onChange={impFile} style={{display:'none'}}/></label>}
+        {editor&&<button onClick={()=>setShowXls(true)} style={bB('#00796b')}>📥 ייבוא</button>}
       </header>
 
-      {/* ── SEARCH DROPDOWN — positioned below header ── */}
+      {/* ── SEARCH DROPDOWN ── */}
       {query&&(
-        <div style={{position:'fixed',top:(headerRef.current?.offsetHeight||56)+'px',right:0,left:0,zIndex:300,background:'#fff',boxShadow:'0 6px 20px rgba(0,0,0,.15)',maxHeight:'55vh',overflowY:'auto',animation:'fadeIn .1s'}}>
-          <div style={{padding:'8px 14px',borderBottom:'1px solid #eee',color:'#777',fontSize:12,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <span>{results.length} תוצאות עבור: <strong>{query}</strong></span>
+        <div style={{position:'fixed',top:(headerRef.current?.offsetHeight||56)+'px',right:0,left:0,zIndex:300,background:'var(--card)',boxShadow:'0 6px 20px rgba(0,0,0,.2)',maxHeight:'54vh',overflowY:'auto',animation:'fadeIn .1s'}}>
+          <div style={{padding:'8px 14px',borderBottom:'1px solid var(--border)',color:'var(--sub)',fontSize:12,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            <span>{results.length} תוצאות עבור: <strong style={{color:'var(--text)'}}>{query}</strong></span>
             <button onClick={()=>setQuery('')} style={{background:'#e53935',border:'none',borderRadius:5,color:'#fff',padding:'3px 10px',cursor:'pointer',fontSize:12}}>✕ סגור</button>
           </div>
-          {!results.length&&<div style={{padding:24,textAlign:'center',color:'#bbb'}}>לא נמצאו תוצאות</div>}
+          {!results.length&&<div style={{padding:24,textAlign:'center',color:'var(--sub)'}}>לא נמצאו תוצאות</div>}
           {results.map((r,i)=>(
-            <div key={i} onClick={()=>nav(r.b.id,r.c.id,r.m.id,query)}
-              style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}
-              onMouseEnter={e=>e.currentTarget.style.background='#f5f5f5'}
-              onMouseLeave={e=>e.currentTarget.style.background=''}>
+            <div key={i} onClick={()=>{trackSearch(query,r.m.id);nav(r.b.id,r.c.id,r.m.id,query);}}
+              style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',background:'var(--card)'}}
+              onMouseEnter={e=>e.currentTarget.style.background='var(--row2)'}
+              onMouseLeave={e=>e.currentTarget.style.background='var(--card)'}>
               <span style={{background:r.b.color,color:'#fff',padding:'2px 8px',borderRadius:4,fontSize:11,fontWeight:'bold'}}>{r.b.name}</span>
-              <div style={{display:'flex',flexDirection:'column',flex:1}}>
+              <div style={{display:'flex',flexDirection:'column',flex:1,minWidth:0}}>
                 <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-                  <span style={{fontWeight:'bold',color:'#222',fontSize:13}}>{r.m.name}</span>
-                  {r.matchedSyn&&<span style={{background:'#e3f2fd',color:'#1565c0',padding:'1px 7px',borderRadius:4,fontSize:11,fontWeight:'bold'}}>≡ {r.matchedSyn}</span>}
+                  <span style={{fontWeight:'bold',color:'var(--text)',fontSize:13}}>{r.m.name}</span>
+                  {r.ms&&<span style={{background:'#e3f2fd',color:'#1565c0',padding:'1px 7px',borderRadius:4,fontSize:11,fontWeight:'bold'}}>≡ {r.ms}</span>}
                 </div>
-                <div style={{display:'flex',gap:8,marginTop:2,flexWrap:'wrap'}}>
-                  <span style={{color:'#999',fontSize:11}}>{r.b.name} · {r.c.name}</span>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:2}}>
+                  <span style={{color:'var(--sub)',fontSize:11}}>{r.b.name} · {r.c.name}</span>
                   {r.ph.length>0&&<span style={{color:'#795548',fontSize:11,background:'#fff9c4',padding:'1px 6px',borderRadius:4}}>✦ {r.ph.length} שורות</span>}
                 </div>
               </div>
+              <button onClick={e=>{e.stopPropagation();toggleFav(r.m.id);}} style={{background:'none',border:'none',fontSize:18,cursor:'pointer'}}>{favorites.has(r.m.id)?'⭐':'☆'}</button>
             </div>
           ))}
         </div>
@@ -531,28 +365,15 @@ function App(){
 
       <div style={{display:'flex',flex:1,overflow:'hidden',height:'calc(100vh - 56px)'}}>
         {/* ── SIDEBAR ── */}
-        <aside style={{width:sidebar?265:0,flexShrink:0,overflow:'hidden',transition:'width .25s',background:'#fff',borderLeft:'1px solid #e0e0e0'}}>
+        <aside style={{width:sidebar?265:0,flexShrink:0,overflow:'hidden',transition:'width .25s',background:'var(--sidebar)',borderLeft:'1px solid var(--border)'}}>
           <div style={{width:265,overflowY:'auto',height:'100%'}}>
             {data.brands.map(b=>(
-              <SidebarBrand key={b.id} brand={b} sel={sel} admin={admin} onNav={nav}
-                onAddModel={(cid,name)=>{
-                  const newId=gid();
-                  changedMids.current.add(newId);
-                  const nm={id:newId,name,synonyms:[],images:[],columns:DCOLS(),parts:[]};
-                  mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,models:[...c.models,nm]})})}));
-                }}
-                onDelModel={async(cid,mid)=>{
-                  if(!confirm('למחוק דגם זה?'))return;
-                  try{await db.collection('parts').doc(mid).delete();}catch{}
-                  mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,models:c.models.filter(m=>m.id!==mid)})})}));
-                  if(sel?.mid===mid)setSel(null);
-                }}
+              <SidebarBrand key={b.id} brand={b} sel={sel} editor={editor} admin={admin} favorites={favorites} onToggleFav={toggleFav} onNav={nav}
+                onAddModel={(cid,name)=>{const id=gid();changedMids.current.add(id);const nm={id,name,synonyms:[],images:[],notes:'',columns:DCOLS(),parts:[]};mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,models:[...c.models,nm]})})}));fbHist({action:'הוסף דגם',model:name,brand:b.name,role});}}
+                onDelModel={async(cid,mid)=>{if(!confirm('למחוק?'))return;try{await db.collection('parts').doc(mid).delete();}catch{}mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,models:c.models.filter(m=>m.id!==mid)})})}));if(sel?.mid===mid)setSel(null);}}
                 onAddCat={name=>mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:[...bb.categories,{id:gid(),name,models:[]}]})}))}
                 onEditCat={(cid,name)=>mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,name})})}))}
-                onDelCat={cid=>{
-                  if(!confirm('למחוק קטגוריה זו?'))return;
-                  mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.filter(c=>c.id!==cid)})}));
-                }}
+                onDelCat={cid=>{if(!confirm('למחוק?'))return;mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.filter(c=>c.id!==cid)})}));}}
               />
             ))}
           </div>
@@ -561,24 +382,21 @@ function App(){
         {/* ── MAIN ── */}
         <main style={{flex:1,overflowY:'auto',padding:14}}>
           {!model
-            ?<HomeScreen data={data} onNav={nav} recentlyViewed={recentlyViewed}/>
-            :<ModelView key={model.id} brand={brand} cat={cat} model={model} admin={admin} hq={sel?.hq||''} data={data}
+            ?<HomeScreen data={data} onNav={nav} recent={recent} favorites={favorites} onToggleFav={toggleFav} topSearches={topSearches} onSearch={q=>setQuery(q)}/>
+            :<ModelView key={model.id} brand={brand} cat={cat} model={model} editor={editor} admin={admin} hq={sel?.hq||''} data={data} favorites={favorites} onToggleFav={toggleFav}
               onUpdate={u=>{changedMids.current.add(model.id);mutM(brand.id,cat.id,model.id,m=>({...m,...u}));}}
               onAddPart={()=>mutM(brand.id,cat.id,model.id,m=>({...m,parts:[...m.parts,{id:gid(),values:Object.fromEntries(m.columns.map(c=>[c.id,'']))}]}))}
               onDelPart={pid=>mutM(brand.id,cat.id,model.id,m=>({...m,parts:m.parts.filter(p=>p.id!==pid)}))}
               onCell={(pid,cid,v)=>mutM(brand.id,cat.id,model.id,m=>({...m,parts:m.parts.map(p=>p.id!==pid?p:{...p,values:{...p.values,[cid]:v}})}))}
               onColName={(cid,n)=>mutM(brand.id,cat.id,model.id,m=>({...m,columns:m.columns.map(c=>c.id!==cid?c:{...c,name:n})}))}
-              onMoveCol={(cid,dir)=>mutM(brand.id,cat.id,model.id,m=>{
-                const cols=[...m.columns];const idx=cols.findIndex(c=>c.id===cid);const ni=idx+dir;
-                if(ni<0||ni>=cols.length)return m;[cols[idx],cols[ni]]=[cols[ni],cols[idx]];return{...m,columns:cols};
-              })}
+              onMoveCol={(cid,dir)=>mutM(brand.id,cat.id,model.id,m=>{const cols=[...m.columns];const idx=cols.findIndex(c=>c.id===cid);const ni=idx+dir;if(ni<0||ni>=cols.length)return m;[cols[idx],cols[ni]]=[cols[ni],cols[idx]];return{...m,columns:cols};})}
               onAddCol={()=>mutM(brand.id,cat.id,model.id,m=>{const cid=gid();return{...m,columns:[...m.columns,{id:cid,name:'עמודה חדשה'}],parts:m.parts.map(p=>({...p,values:{...p.values,[cid]:''}}))}})}
               onDelCol={cid=>mutM(brand.id,cat.id,model.id,m=>({...m,columns:m.columns.filter(c=>c.id!==cid),parts:m.parts.map(p=>{const v={...p.values};delete v[cid];return{...p,values:v}})}))}
               onPaste={rows=>mutM(brand.id,cat.id,model.id,m=>({...m,parts:[...m.parts,...rows.map(r=>({id:gid(),values:Object.fromEntries(m.columns.map((c,i)=>[c.id,r[i]||'']))}))]}))}
               onImgUpload={e=>handleImgUpload(e,brand.id,cat.id,model.id)}
               onDelImg={idx=>mutM(brand.id,cat.id,model.id,m=>({...m,images:m.images.filter((_,i)=>i!==idx)}))}
               onImgUrl={url=>mutM(brand.id,cat.id,model.id,m=>({...m,images:[...(m.images||[]),url]}))}
-              onOpenImg={openImgModal}
+              onOpenImg={(imgs,idx)=>{setImgModal({imgs,idx});setImgZoom(1);}}
               onMove={(toBid,toCid)=>moveModel(brand.id,cat.id,model.id,toBid,toCid)}
               onDuplicate={()=>duplicateModel(brand.id,cat.id,model.id)}
               onCopyPartsFrom={(sb,sc,sm)=>copyPartsFrom(sb,sc,sm,brand.id,cat.id,model.id)}
@@ -592,9 +410,9 @@ function App(){
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.93)',zIndex:900,display:'flex',flexDirection:'column'}} onClick={()=>setImgModal({imgs:[],idx:0})}>
           <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:8,padding:12,flexShrink:0,flexWrap:'wrap'}} onClick={e=>e.stopPropagation()}>
             {imgModal.imgs.length>1&&<button onClick={()=>setImgModal(p=>({...p,idx:Math.max(0,p.idx-1)}))} style={{background:'#fff',border:'none',borderRadius:8,padding:'8px 14px',cursor:'pointer',fontSize:14,fontWeight:'bold'}}>◀</button>}
-            <button onClick={()=>setImgZoom(z=>Math.min(z+.5,8))} style={{background:'#fff',border:'none',borderRadius:8,padding:'8px 14px',cursor:'pointer',fontSize:14,fontWeight:'bold'}}>🔍+</button>
-            <button onClick={()=>setImgZoom(z=>Math.max(z-.5,.5))} style={{background:'#fff',border:'none',borderRadius:8,padding:'8px 14px',cursor:'pointer',fontSize:14,fontWeight:'bold'}}>🔍−</button>
-            <button onClick={()=>setImgZoom(1)} style={{background:'#fff',border:'none',borderRadius:8,padding:'8px 14px',cursor:'pointer',fontSize:14,fontWeight:'bold'}}>↺</button>
+            {[['🔍+',()=>setImgZoom(z=>Math.min(z+.5,8))],['🔍−',()=>setImgZoom(z=>Math.max(z-.5,.5))],['↺',()=>setImgZoom(1)]].map(([l,f])=>(
+              <button key={l} onClick={f} style={{background:'#fff',border:'none',borderRadius:8,padding:'8px 14px',cursor:'pointer',fontSize:14,fontWeight:'bold'}}>{l}</button>
+            ))}
             {imgModal.imgs.length>1&&<button onClick={()=>setImgModal(p=>({...p,idx:Math.min(p.imgs.length-1,p.idx+1)}))} style={{background:'#fff',border:'none',borderRadius:8,padding:'8px 14px',cursor:'pointer',fontSize:14,fontWeight:'bold'}}>▶</button>}
             <span style={{color:'rgba(255,255,255,.7)',fontSize:12}}>{Math.round(imgZoom*100)}%{imgModal.imgs.length>1?` | ${imgModal.idx+1}/${imgModal.imgs.length}`:''}</span>
             <button onClick={()=>setImgModal({imgs:[],idx:0})} style={{background:'#e53935',border:'none',borderRadius:8,padding:'8px 14px',cursor:'pointer',fontSize:14,fontWeight:'bold',color:'#fff'}}>✕</button>
@@ -605,160 +423,199 @@ function App(){
         </div>
       )}
 
-      {/* ── ERROR DETAILS MODAL ── */}
-      {showErr&&(
-        <Modal onClose={()=>setShowErr(false)} title="⚠ פרטי שגיאת שמירה">
-          <div style={{background:'#ffebee',borderRadius:8,padding:14,marginBottom:14,fontSize:12,fontFamily:'monospace',color:'#c62828',wordBreak:'break-all',maxHeight:200,overflowY:'auto'}}>
-            {saveErr||'שגיאה לא ידועה'}
-          </div>
-          <div style={{fontSize:13,color:'#555',marginBottom:16}}>
-            <div style={{fontWeight:'bold',marginBottom:8}}>סיבות נפוצות:</div>
-            <div>• חריגה ממגבלת 1MB — פתור אוטומטי בגרסה זו</div>
-            <div>• בעיית חיבור לאינטרנט</div>
-            <div>• חוקי Firestore חוסמים כתיבה</div>
-            <div style={{marginTop:8,color:'#1565c0'}}>בדוק Firebase Console → Firestore → Rules</div>
-          </div>
-          <div style={{display:'flex',gap:8}}>
-            <button onClick={async()=>{
-              setSaving('saving');setShowErr(false);
-              try{
-                await fbSave(data,new Set(data.brands.flatMap(b=>b.categories.flatMap(c=>c.models.map(m=>m.id)))));
-                setSaving('saved');setSaveErr('');setTimeout(()=>setSaving(''),3000);
-              }catch(e){setSaving('error');setSaveErr(e.message);}
-            }} style={{flex:1,...BPr('#1565c0')}}>🔄 נסה לשמור שוב</button>
-            <button onClick={()=>setShowErr(false)} style={{flex:1,...BST}}>סגור</button>
-          </div>
-        </Modal>
-      )}
+      {/* ── ERROR MODAL ── */}
+      {showErr&&<Modal onClose={()=>setShowErr(false)} title="⚠ שגיאת שמירה">
+        <div style={{background:'#ffebee',borderRadius:8,padding:12,marginBottom:12,fontSize:12,fontFamily:'monospace',color:'#c62828',wordBreak:'break-all',maxHeight:140,overflowY:'auto'}}>{saveErr}</div>
+        <div style={{fontSize:12,color:'var(--sub)',marginBottom:12}}>בדוק: חיבור אינטרנט · Firestore Rules · מגבלת אחסון</div>
+        <button onClick={async()=>{setShowErr(false);setSaving('saving');try{await fbSave(data,new Set(data.brands.flatMap(b=>b.categories.flatMap(c=>c.models.map(m=>m.id)))));setSaving('saved');setSaveErr('');}catch(e){setSaving('error');setSaveErr(e.message);}}} style={{width:'100%',...BPr('#1565c0')}}>🔄 נסה שוב</button>
+      </Modal>}
 
       {/* ── LOGIN ── */}
-      {pwdDlg&&(
-        <Modal onClose={()=>{setPwdDlg(false);setPwdIn('');setPwdErr('');}} title="🔐 כניסת מנהל">
-          <input type="password" value={pwdIn} onChange={e=>setPwdIn(e.target.value)}
-            onKeyDown={e=>e.key==='Enter'&&tryLogin()} placeholder="הזן סיסמה" autoFocus style={INS}/>
-          {pwdErr&&<div style={{color:'red',fontSize:12,margin:'8px 0'}}>{pwdErr}</div>}
-          <div style={{display:'flex',gap:8,marginTop:12}}>
-            <button onClick={tryLogin} style={{flex:1,...BPr('#1565c0')}}>כניסה</button>
-            <button onClick={()=>{setPwdDlg(false);setPwdIn('');setPwdErr('');}} style={{flex:1,...BST}}>ביטול</button>
-          </div>
-        </Modal>
-      )}
+      {pwdDlg&&<LoginModal data={data} onLogin={r=>{setRole(r);setPwdDlg(false);}} onClose={()=>setPwdDlg(false)}/>}
 
-      {chPwd&&<ChangePwd current={data.pass} onSave={p=>{mut(d=>({...d,pass:p}));setChPwd(false);alert('✅ הסיסמה שונתה');}} onClose={()=>setChPwd(false)}/>}
+      {/* ── HISTORY ── */}
+      {showHistory&&<HistoryModal history={histData} onClose={()=>setShowHistory(false)}/>}
+
+      {chPwd&&<ChangePwd data={data} onSave={d=>{mut(()=>({...d}));setChPwd(false);alert('✅ נשמר');}} onClose={()=>setChPwd(false)}/>}
       {brandMgr&&<BrandMgr data={data} onSave={brands=>{mut(d=>({...d,brands}));setBrandMgr(false);}} onClose={()=>setBrandMgr(false)}/>}
-      {showXlsImport&&<XlsImportModal data={data} onImport={importFromXls} onClose={()=>setShowXlsImport(false)}/>}
+      {showXls&&<XlsImportModal data={data} onImport={importFromXls} onClose={()=>setShowXls(false)}/>}
       {showBulkMove&&<BulkMoveModal data={data} onMove={bulkMoveModels} onClose={()=>setShowBulkMove(false)}/>}
-      {showBulkDelete&&<BulkDeleteModal data={data} onDelete={bulkDeleteModels} onClose={()=>setShowBulkDelete(false)}/>}
+      {showBulkDel&&<BulkDeleteModal data={data} onDelete={bulkDeleteModels} onClose={()=>setShowBulkDel(false)}/>}
     </div>
   );
 }
 
-// ══════════ HOME ══════════
-function HomeScreen({data,onNav,recentlyViewed}){
+// ══════════ LOGIN MODAL ══════════
+function LoginModal({data,onLogin,onClose}){
+  const[pwd,setPwd]=useState('');const[err,setErr]=useState('');
+  const submit=()=>{
+    if(pwd===data.pass)onLogin('admin');
+    else if(pwd===(data.editorPass||'editor1234'))onLogin('editor');
+    else setErr('סיסמה שגויה');
+  };
+  return(<Modal onClose={onClose} title="🔐 כניסה למערכת">
+    <div style={{background:'var(--row2)',borderRadius:8,padding:10,marginBottom:14,fontSize:12,color:'var(--sub)'}}>
+      <div>🔓 <strong>מנהל</strong> — גישה מלאה (עריכה, מחיקה, ייצוא)</div>
+      <div>✏️ <strong>עורך</strong> — עריכת חלקים ויבוא בלבד</div>
+    </div>
+    <input type="password" value={pwd} onChange={e=>setPwd(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} placeholder="הזן סיסמה" autoFocus style={{...INS,marginBottom:8}}/>
+    {err&&<div style={{color:'red',fontSize:12,marginBottom:8}}>{err}</div>}
+    <div style={{display:'flex',gap:8}}>
+      <button onClick={submit} style={{flex:1,...BPr('#1565c0')}}>כניסה</button>
+      <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
+    </div>
+  </Modal>);
+}
+
+// ══════════ HISTORY MODAL ══════════
+function HistoryModal({history,onClose}){
+  const icons={
+    'הוסף דגם':'➕','העבר דגם':'🔀','העברה מרובה':'🔀','מחיקה מרובה':'🗑','ייבוא Excel':'📥',
+  };
+  return(<Modal onClose={onClose} title="📋 לוג שינויים" wide>
+    <div style={{maxHeight:'60vh',overflowY:'auto'}}>
+      {!history.length&&<div style={{textAlign:'center',color:'var(--sub)',padding:30}}>אין רשומות עדיין</div>}
+      {history.map((h,i)=>(
+        <div key={h.id||i} style={{display:'flex',gap:10,alignItems:'flex-start',padding:'10px 0',borderBottom:'1px solid var(--border)'}}>
+          <span style={{fontSize:20,flexShrink:0}}>{icons[h.action]||'📝'}</span>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:'bold',color:'var(--text)',fontSize:13}}>{h.action}</div>
+            <div style={{color:'var(--sub)',fontSize:11,marginTop:2}}>
+              {h.model&&<span>דגם: {h.model} · </span>}
+              {h.brand&&<span>מותג: {h.brand} · </span>}
+              {h.count&&<span>כמות: {h.count} · </span>}
+              {h.parts&&<span>חלקים: {h.parts} · </span>}
+              <span>תפקיד: {h.role||'?'}</span>
+            </div>
+          </div>
+          <div style={{color:'var(--sub)',fontSize:10,flexShrink:0,textAlign:'left'}}>{h.ts}</div>
+        </div>
+      ))}
+    </div>
+    <button onClick={onClose} style={{width:'100%',marginTop:14,...BST}}>סגור</button>
+  </Modal>);
+}
+
+// ══════════ HOME SCREEN ══════════
+function HomeScreen({data,onNav,recent,favorites,onToggleFav,topSearches,onSearch}){
   const total=data.brands.reduce((s,b)=>s+b.categories.reduce((ss,c)=>ss+c.models.length,0),0);
   const totalParts=data.brands.reduce((s,b)=>s+b.categories.reduce((ss,c)=>ss+c.models.reduce((sss,m)=>sss+m.parts.length,0),0),0);
   const[expandedBrand,setExpandedBrand]=useState(null);
 
-  // resolve recently viewed
-  const recentModels=recentlyViewed.slice(0,6).map(rv=>{
-    const b=data.brands.find(x=>x.id===rv.bid);
-    const c=b?.categories.find(x=>x.id===rv.cid);
-    const m=c?.models.find(x=>x.id===rv.mid);
-    if(!b||!c||!m)return null;
-    return{b,c,m,ts:rv.ts};
+  const fmtTime=ts=>{const diff=Math.floor((Date.now()-ts)/60000);if(diff<1)return 'עכשיו';if(diff<60)return`לפני ${diff} דק'`;if(diff<1440)return`לפני ${Math.floor(diff/60)} שע'`;return new Date(ts).toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'});};
+
+  const recentModels=recent.slice(0,6).map(rv=>{
+    const b=data.brands.find(x=>x.id===rv.bid);const c=b?.categories.find(x=>x.id===rv.cid);const m=c?.models.find(x=>x.id===rv.mid);
+    if(!b||!c||!m)return null;return{b,c,m,ts:rv.ts};
   }).filter(Boolean);
 
-  const fmtTime=ts=>{
-    const d=new Date(ts),now=new Date();
-    const diff=Math.floor((now-d)/60000);
-    if(diff<1)return 'עכשיו';
-    if(diff<60)return `לפני ${diff} דק'`;
-    if(diff<1440)return `לפני ${Math.floor(diff/60)} שע'`;
-    return d.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'});
-  };
+  const favModels=[];
+  data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{if(favorites.has(m.id))favModels.push({b,c,m});})));
 
-  return(
-    <div>
-      {/* Stats bar */}
-      <div style={{display:'flex',gap:12,marginBottom:20,flexWrap:'wrap'}}>
-        {[
-          {icon:'❄️',label:'דגמים',val:total,color:'#1565c0'},
-          {icon:'🔩',label:'חלקים',val:totalParts.toLocaleString(),color:'#2e7d32'},
-          {icon:'🏷️',label:'מותגים',val:data.brands.length,color:'#6a1b9a'},
-        ].map(s=>(
-          <div key={s.label} style={{background:'#fff',borderRadius:12,padding:'12px 18px',flex:'1 1 100px',boxShadow:'0 1px 4px rgba(0,0,0,.07)',display:'flex',alignItems:'center',gap:10}}>
-            <span style={{fontSize:26}}>{s.icon}</span>
-            <div><div style={{fontSize:20,fontWeight:'bold',color:s.color}}>{s.val}</div>
-            <div style={{fontSize:11,color:'#aaa'}}>{s.label}</div></div>
-          </div>
-        ))}
+  return(<div>
+    {/* Stats */}
+    <div style={{display:'flex',gap:10,marginBottom:18,flexWrap:'wrap'}}>
+      {[['❄️','דגמים',total,'#1565c0'],['🔩','חלקים',totalParts.toLocaleString(),'#2e7d32'],['🏷️','מותגים',data.brands.length,'#6a1b9a']].map(([ic,lb,v,col])=>(
+        <div key={lb} style={{background:'var(--card)',borderRadius:12,padding:'12px 16px',flex:'1 1 90px',boxShadow:'0 1px 4px var(--shadow)',display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:26}}>{ic}</span>
+          <div><div style={{fontSize:18,fontWeight:'bold',color:col}}>{v}</div><div style={{fontSize:11,color:'var(--sub)'}}>{lb}</div></div>
+        </div>
+      ))}
+    </div>
+
+    {/* Top searches */}
+    {topSearches.length>0&&(
+      <div style={{marginBottom:18}}>
+        <div style={{fontWeight:'bold',fontSize:13,color:'var(--sub)',marginBottom:8}}>🔥 חיפושים נפוצים</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {topSearches.map(([q,c])=>(
+            <button key={q} onClick={()=>onSearch(q)}
+              style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:20,padding:'4px 12px',cursor:'pointer',fontSize:12,color:'var(--text)',display:'flex',alignItems:'center',gap:5}}>
+              {q} <span style={{color:'var(--sub)',fontSize:10}}>×{c}</span>
+            </button>
+          ))}
+        </div>
       </div>
+    )}
 
-      {/* Recently viewed */}
-      {recentModels.length>0&&(
-        <div style={{marginBottom:24}}>
-          <div style={{fontWeight:'bold',fontSize:14,color:'#555',marginBottom:10}}>🕐 נצפו לאחרונה</div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:8}}>
-            {recentModels.map(({b,c,m,ts})=>(
-              <div key={m.id} onClick={()=>onNav(b.id,c.id,m.id)}
-                style={{background:'#fff',borderRadius:10,padding:'12px 14px',cursor:'pointer',boxShadow:'0 1px 4px rgba(0,0,0,.07)',borderRight:`4px solid ${b.color}`,transition:'all .15s',position:'relative'}}
-                onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 4px 14px rgba(0,0,0,.12)';e.currentTarget.style.transform='translateY(-2px)';}}
-                onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 4px rgba(0,0,0,.07)';e.currentTarget.style.transform='';}}>
-                <div style={{fontSize:10,color:'#bbb',marginBottom:4}}>{fmtTime(ts)}</div>
-                <div style={{fontWeight:'bold',color:'#222',fontSize:13,marginBottom:2}}>{m.name}</div>
-                <div style={{fontSize:10,color:'#aaa',marginBottom:4}}>{b.name} · {c.name}</div>
+    {/* Favorites */}
+    {favModels.length>0&&(
+      <div style={{marginBottom:18}}>
+        <div style={{fontWeight:'bold',fontSize:13,color:'var(--sub)',marginBottom:8}}>⭐ מועדפים</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:8}}>
+          {favModels.map(({b,c,m})=>(
+            <div key={m.id} style={{background:'var(--card)',borderRadius:10,padding:'11px 13px',cursor:'pointer',boxShadow:'0 1px 4px var(--shadow)',borderRight:`4px solid ${b.color}`,transition:'all .15s',position:'relative'}}
+              onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 4px 14px var(--shadow)';}}
+              onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.boxShadow='0 1px 4px var(--shadow)';}}>
+              <button onClick={e=>{e.stopPropagation();onToggleFav(m.id);}} style={{position:'absolute',top:6,left:8,background:'none',border:'none',fontSize:14,cursor:'pointer'}}>⭐</button>
+              <div onClick={()=>onNav(b.id,c.id,m.id)}>
+                <div style={{fontWeight:'bold',color:'var(--text)',fontSize:12,marginBottom:2,paddingLeft:18}}>{m.name}</div>
+                <div style={{fontSize:10,color:'var(--sub)',marginBottom:3}}>{b.name} · {c.name}</div>
                 <div style={{fontSize:11,color:b.color,fontWeight:'bold'}}>{m.parts.length} חלקים</div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Brand quick-access */}
-      <div style={{marginBottom:10,fontWeight:'bold',fontSize:14,color:'#555'}}>📁 לפי מותג</div>
-      {data.brands.map(b=>{
-        const modelCount=b.categories.reduce((s,c)=>s+c.models.length,0);
-        const isOpen=expandedBrand===b.id;
-        return(
-          <div key={b.id} style={{marginBottom:10,background:'#fff',borderRadius:12,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
-            {/* Brand header */}
-            <div onClick={()=>setExpandedBrand(isOpen?null:b.id)}
-              style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',cursor:'pointer',background:isOpen?b.color+'11':'#fff',borderBottom:isOpen?`2px solid ${b.color}`:'none'}}>
-              <div style={{background:b.color,color:'#fff',padding:'4px 14px',borderRadius:20,fontWeight:'bold',fontSize:14}}>{b.name}</div>
-              <span style={{color:'#aaa',fontSize:12}}>{modelCount} דגמים</span>
-              <span style={{marginRight:'auto',color:'#aaa',fontSize:13}}>{isOpen?'▲':'▼'}</span>
             </div>
-            {/* Categories + models (expanded) */}
-            {isOpen&&(
-              <div style={{padding:'10px 16px 14px'}}>
-                {b.categories.filter(c=>c.models.length>0).map(c=>(
-                  <div key={c.id} style={{marginBottom:12}}>
-                    <div style={{fontSize:11,color:'#888',fontWeight:'bold',marginBottom:6}}>{c.name}</div>
-                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:6}}>
-                      {c.models.map(m=>(
-                        <div key={m.id} onClick={()=>onNav(b.id,c.id,m.id)}
-                          style={{padding:'8px 12px',borderRadius:8,border:`1px solid ${b.color}33`,cursor:'pointer',background:b.light,transition:'all .1s'}}
-                          onMouseEnter={e=>e.currentTarget.style.background=b.color+'33'}
-                          onMouseLeave={e=>e.currentTarget.style.background=b.light}>
-                          <div style={{fontWeight:'bold',color:'#222',fontSize:12,marginBottom:2}}>{m.name}</div>
-                          <div style={{fontSize:10,color:b.color,fontWeight:'bold'}}>{m.parts.length} חלקים</div>
-                        </div>
-                      ))}
-                    </div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {/* Recently viewed */}
+    {recentModels.length>0&&(
+      <div style={{marginBottom:18}}>
+        <div style={{fontWeight:'bold',fontSize:13,color:'var(--sub)',marginBottom:8}}>🕐 נצפו לאחרונה</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:8}}>
+          {recentModels.map(({b,c,m,ts})=>(
+            <div key={m.id} onClick={()=>onNav(b.id,c.id,m.id)}
+              style={{background:'var(--card)',borderRadius:10,padding:'11px 13px',cursor:'pointer',boxShadow:'0 1px 4px var(--shadow)',borderRight:`4px solid ${b.color}`,transition:'all .15s'}}
+              onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';}}
+              onMouseLeave={e=>{e.currentTarget.style.transform='';}}>
+              <div style={{fontSize:10,color:'var(--sub)',marginBottom:3}}>{fmtTime(ts)}</div>
+              <div style={{fontWeight:'bold',color:'var(--text)',fontSize:12,marginBottom:2}}>{m.name}</div>
+              <div style={{fontSize:10,color:'var(--sub)',marginBottom:3}}>{b.name} · {c.name}</div>
+              <div style={{fontSize:11,color:b.color,fontWeight:'bold'}}>{m.parts.length} חלקים</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {/* Brand accordion */}
+    <div style={{fontWeight:'bold',fontSize:13,color:'var(--sub)',marginBottom:10}}>📁 לפי מותג</div>
+    {data.brands.map(b=>{
+      const mc=b.categories.reduce((s,c)=>s+c.models.length,0);
+      const isOpen=expandedBrand===b.id;
+      return(<div key={b.id} style={{marginBottom:8,background:'var(--card)',borderRadius:12,overflow:'hidden',boxShadow:'0 1px 4px var(--shadow)'}}>
+        <div onClick={()=>setExpandedBrand(isOpen?null:b.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',cursor:'pointer',background:isOpen?b.color+'18':'var(--card)',borderBottom:isOpen?`2px solid ${b.color}`:'none'}}>
+          <div style={{background:b.color,color:'#fff',padding:'4px 14px',borderRadius:20,fontWeight:'bold',fontSize:14}}>{b.name}</div>
+          <span style={{color:'var(--sub)',fontSize:12}}>{mc} דגמים</span>
+          <span style={{marginRight:'auto',color:'var(--sub)',fontSize:13}}>{isOpen?'▲':'▼'}</span>
+        </div>
+        {isOpen&&<div style={{padding:'10px 16px 14px'}}>
+          {b.categories.filter(c=>c.models.length>0).map(c=>(
+            <div key={c.id} style={{marginBottom:10}}>
+              <div style={{fontSize:11,color:'var(--sub)',fontWeight:'bold',marginBottom:6}}>{c.name}</div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:6}}>
+                {c.models.map(m=>(
+                  <div key={m.id} onClick={()=>onNav(b.id,c.id,m.id)} style={{padding:'8px 10px',borderRadius:8,border:`1px solid ${b.color}44`,cursor:'pointer',background:b.light+'88',transition:'background .1s',position:'relative'}}
+                    onMouseEnter={e=>e.currentTarget.style.background=b.color+'33'}
+                    onMouseLeave={e=>e.currentTarget.style.background=b.light+'88'}>
+                    <button onClick={ev=>{ev.stopPropagation();onToggleFav(m.id);}} style={{position:'absolute',top:4,left:6,background:'none',border:'none',fontSize:13,cursor:'pointer'}}>{favorites.has(m.id)?'⭐':'☆'}</button>
+                    <div style={{fontWeight:'bold',color:'var(--text)',fontSize:12,marginBottom:2,paddingLeft:16}}>{m.name}</div>
+                    <div style={{fontSize:10,color:b.color,fontWeight:'bold'}}>{m.parts.length} חלקים</div>
                   </div>
                 ))}
-                {!b.categories.some(c=>c.models.length>0)&&<div style={{color:'#ccc',fontSize:13}}>אין דגמים עדיין</div>}
               </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
+            </div>
+          ))}
+          {!b.categories.some(c=>c.models.length>0)&&<div style={{color:'var(--sub)',fontSize:13}}>אין דגמים עדיין</div>}
+        </div>}
+      </div>);
+    })}
+  </div>);
 }
 
 // ══════════ SIDEBAR ══════════
-function SidebarBrand({brand,sel,admin,onNav,onAddModel,onDelModel,onAddCat,onEditCat,onDelCat}){
+function SidebarBrand({brand,sel,editor,admin,favorites,onToggleFav,onNav,onAddModel,onDelModel,onAddCat,onEditCat,onDelCat}){
   const[open,setOpen]=useState(false);
   const[openCats,setOpenCats]=useState({});
   const[addingMod,setAddingMod]=useState(null);
@@ -767,331 +624,88 @@ function SidebarBrand({brand,sel,admin,onNav,onAddModel,onDelModel,onAddCat,onEd
   const[addingCat,setAddingCat]=useState(false);
   const[newCatName,setNewCatName]=useState('');
   const modRef=useRef();
+
   useEffect(()=>{if(sel?.bid===brand.id){setOpen(true);setOpenCats(p=>({...p,[sel.cid]:true}));}},[sel?.bid,sel?.cid]);
   const toggleCat=id=>setOpenCats(p=>({...p,[id]:!p[id]}));
   const doAddMod=cid=>{const n=newModName.trim();if(!n)return;onAddModel(cid,n);setNewModName('');setAddingMod(null);};
   const startAdd=cid=>{setAddingMod(cid);setNewModName('');setTimeout(()=>modRef.current?.focus(),50);};
-  return(
-    <div style={{borderBottom:'1px solid #eee'}}>
-      <div onClick={()=>setOpen(v=>!v)} style={{padding:'11px 14px',background:brand.color,color:'#fff',display:'flex',alignItems:'center',cursor:'pointer',userSelect:'none',gap:6}}>
-        <span style={{flex:1,fontWeight:'bold',fontSize:14}}>{brand.name}</span>
-        <span style={{fontSize:11,opacity:.8}}>{open?'▲':'▼'}</span>
-      </div>
-      {open&&<>
-        {brand.categories.map(c=>(
-          <div key={c.id}>
-            <div style={{display:'flex',alignItems:'center',background:'#f7f7f7',borderBottom:'1px solid #ebebeb',minHeight:36}}>
-              {editCat?.id===c.id&&admin
-                ?<div style={{flex:1,display:'flex',gap:4,padding:'4px 8px'}}>
-                   <input value={editCat.name} autoFocus onChange={e=>setEditCat({id:c.id,name:e.target.value})}
-                     onKeyDown={e=>{if(e.key==='Enter'){onEditCat(c.id,editCat.name);setEditCat(null);}if(e.key==='Escape')setEditCat(null);}}
-                     style={{flex:1,border:'1px solid #ddd',borderRadius:4,padding:'3px 6px',fontSize:12,color:'#333'}}/>
-                   <button onClick={()=>{onEditCat(c.id,editCat.name);setEditCat(null);}} style={{background:brand.color,color:'#fff',border:'none',borderRadius:4,padding:'2px 8px',cursor:'pointer',fontSize:11}}>✓</button>
-                   <button onClick={()=>setEditCat(null)} style={{background:'#eee',border:'none',borderRadius:4,padding:'2px 6px',cursor:'pointer',fontSize:11}}>✕</button>
-                 </div>
-                :<div onClick={()=>toggleCat(c.id)} style={{flex:1,padding:'8px 14px 8px 20px',cursor:'pointer',color:'#555',fontSize:13,userSelect:'none',display:'flex',alignItems:'center'}}>
-                   <span style={{flex:1}}>{c.name}</span><span style={{fontSize:10,color:'#aaa'}}>{openCats[c.id]?'▲':'▼'}</span>
-                 </div>
-              }
-              {admin&&editCat?.id!==c.id&&(
-                <div style={{display:'flex',flexShrink:0,paddingLeft:4}}>
-                  <button onClick={e=>{e.stopPropagation();startAdd(c.id);}} style={{background:'none',border:'none',color:brand.color,cursor:'pointer',fontSize:20,fontWeight:'bold',padding:'2px 6px',lineHeight:1}}>+</button>
-                  <button onClick={e=>{e.stopPropagation();setEditCat({id:c.id,name:c.name});}} style={{background:'none',border:'none',color:'#888',cursor:'pointer',fontSize:13,padding:'2px 4px'}}>✏</button>
-                  <button onClick={e=>{e.stopPropagation();onDelCat(c.id);}} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13,padding:'2px 5px'}}>🗑</button>
-                </div>
-              )}
-            </div>
-            {openCats[c.id]&&<>
-              {addingMod===c.id&&(
-                <div style={{padding:'6px 10px',background:'#fafafa',display:'flex',gap:6,borderBottom:'1px solid #eee'}}>
-                  <input ref={modRef} value={newModName} onChange={e=>setNewModName(e.target.value)}
-                    onKeyDown={e=>{if(e.key==='Enter')doAddMod(c.id);if(e.key==='Escape'){setAddingMod(null);setNewModName('');}}}
-                    placeholder="שם הדגם..." style={{flex:1,border:'1px solid #ddd',borderRadius:4,padding:'5px 8px',fontSize:12,color:'#333'}}/>
-                  <button onClick={()=>doAddMod(c.id)} style={{background:brand.color,color:'#fff',border:'none',borderRadius:4,padding:'5px 10px',cursor:'pointer',fontSize:12}}>הוסף</button>
-                  <button onClick={()=>{setAddingMod(null);setNewModName('');}} style={{background:'#eee',border:'none',borderRadius:4,padding:'5px 8px',cursor:'pointer',fontSize:12}}>✕</button>
-                </div>
-              )}
-              {c.models.map(m=>(
-                <div key={m.id} style={{display:'flex',alignItems:'center',borderBottom:'1px solid #f5f5f5'}}>
-                  <div onClick={()=>onNav(brand.id,c.id,m.id)}
-                    style={{flex:1,padding:'8px 14px 8px 28px',cursor:'pointer',fontSize:13,
-                      color:sel?.mid===m.id?brand.color:'#444',fontWeight:sel?.mid===m.id?'bold':'normal',
-                      background:sel?.mid===m.id?brand.light:'transparent',
-                      borderRight:sel?.mid===m.id?`3px solid ${brand.color}`:'3px solid transparent'}}>
-                    {m.name}
-                    {m.synonyms?.length>0&&<div style={{fontSize:10,color:'#bbb',marginTop:2}}>{m.synonyms.join(' | ')}</div>}
-                  </div>
-                  {admin&&<button onClick={()=>onDelModel(c.id,m.id)} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:14,padding:'0 10px'}}>🗑</button>}
-                </div>
-              ))}
-              {!c.models.length&&<div style={{padding:'7px 28px',color:'#ccc',fontSize:12}}>אין דגמים</div>}
-            </>}
-          </div>
-        ))}
-        {admin&&(addingCat
-          ?<div style={{padding:'6px 10px',background:'#f0f0f0',display:'flex',gap:6}}>
-             <input value={newCatName} autoFocus onChange={e=>setNewCatName(e.target.value)}
-               onKeyDown={e=>{if(e.key==='Enter'&&newCatName.trim()){onAddCat(newCatName.trim());setNewCatName('');setAddingCat(false);}if(e.key==='Escape')setAddingCat(false);}}
-               placeholder="שם קטגוריה..." style={{flex:1,border:'1px solid #ddd',borderRadius:4,padding:'5px 8px',fontSize:12,color:'#333'}}/>
-             <button onClick={()=>{if(newCatName.trim()){onAddCat(newCatName.trim());setNewCatName('');setAddingCat(false);}}} style={{background:brand.color,color:'#fff',border:'none',borderRadius:4,padding:'5px 10px',cursor:'pointer',fontSize:12}}>הוסף</button>
-             <button onClick={()=>setAddingCat(false)} style={{background:'#eee',border:'none',borderRadius:4,padding:'5px 8px',cursor:'pointer',fontSize:12}}>✕</button>
-           </div>
-          :<button onClick={()=>setAddingCat(true)} style={{width:'100%',padding:'8px',background:'none',border:'none',borderTop:'1px dashed #ddd',color:brand.color,cursor:'pointer',fontSize:12,fontWeight:'bold'}}>+ הוסף קטגוריה</button>
-        )}
-      </>}
+
+  return(<div style={{borderBottom:'1px solid var(--border)'}}>
+    <div onClick={()=>setOpen(v=>!v)} style={{padding:'11px 14px',background:brand.color,color:'#fff',display:'flex',alignItems:'center',cursor:'pointer',userSelect:'none',gap:6}}>
+      <span style={{flex:1,fontWeight:'bold',fontSize:14}}>{brand.name}</span>
+      <span style={{fontSize:11,opacity:.8}}>{open?'▲':'▼'}</span>
     </div>
-  );
-}
-
-// ══════════ BULK MOVE MODAL ══════════
-function BulkMoveModal({data,onMove,onClose}){
-  const[selected,setSelected]=useState(new Set());
-  const[toBid,setToBid]=useState('');
-  const[toCid,setToCid]=useState('');
-  const[filterQ,setFilterQ]=useState('');
-  const targetBrand=data.brands.find(b=>b.id===toBid);
-
-  const allModels=[];
-  data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>allModels.push({bid:b.id,cid:c.id,mid:m.id,bname:b.name,cname:c.name,mname:m.name,color:b.color,light:b.light}))));
-  const filtered=filterQ?allModels.filter(x=>x.mname.toLowerCase().includes(filterQ.toLowerCase())||x.bname.toLowerCase().includes(filterQ.toLowerCase())||x.cname.toLowerCase().includes(filterQ.toLowerCase())):allModels;
-
-  const toggle=key=>setSelected(p=>{const n=new Set(p);n.has(key)?n.delete(key):n.add(key);return n;});
-  const selKey=(bid,cid,mid)=>`${bid}|${cid}|${mid}`;
-
-  const doMove=()=>{
-    if(!selected.size){alert('בחר דגמים');return;}
-    if(!toCid){alert('בחר יעד');return;}
-    const sels=[...selected].map(k=>{const[bid,cid,mid]=k.split('|');return{bid,cid,mid};});
-    onMove(sels,toBid,toCid);
-    alert(`✅ ${sels.length} דגמים הועברו`);
-    onClose();
-  };
-
-  return(
-    <Modal onClose={onClose} wide title="🔀 העברה מרובה של דגמים">
-      <div style={{display:'flex',gap:8,marginBottom:12}}>
-        <input value={filterQ} onChange={e=>setFilterQ(e.target.value)} placeholder="🔍 חפש דגם..."
-          style={{flex:1,border:'1px solid #ddd',borderRadius:8,padding:'7px 12px',fontSize:13,color:'#333',outline:'none'}}/>
-        <button onClick={()=>setSelected(new Set(filtered.map(x=>selKey(x.bid,x.cid,x.mid))))}
-          style={sB('#607d8b')}>בחר הכל</button>
-        <button onClick={()=>setSelected(new Set())} style={sB('#9e9e9e')}>נקה</button>
-      </div>
-      <div style={{maxHeight:'34vh',overflowY:'auto',border:'1px solid #eee',borderRadius:8,marginBottom:14}}>
-        {filtered.map(x=>{
-          const key=selKey(x.bid,x.cid,x.mid);
-          const isSel=selected.has(key);
-          return(
-            <div key={key} onClick={()=>toggle(key)}
-              style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',background:isSel?'#e3f2fd':'#fff'}}
-              onMouseEnter={e=>{if(!isSel)e.currentTarget.style.background='#f5f5f5';}}
-              onMouseLeave={e=>{if(!isSel)e.currentTarget.style.background='#fff';}}>
-              <input type="checkbox" checked={isSel} readOnly style={{width:16,height:16,flexShrink:0}}/>
-              <span style={{background:x.color,color:'#fff',padding:'2px 7px',borderRadius:4,fontSize:10,fontWeight:'bold',flexShrink:0}}>{x.bname}</span>
-              <span style={{fontWeight:'bold',color:'#333',flex:1,fontSize:13}}>{x.mname}</span>
-              <span style={{color:'#aaa',fontSize:11}}>{x.cname}</span>
-            </div>
-          );
-        })}
-        {!filtered.length&&<div style={{padding:20,textAlign:'center',color:'#bbb'}}>אין דגמים</div>}
-      </div>
-      {selected.size>0&&<div style={{background:'#e8f5e9',borderRadius:8,padding:'8px 14px',marginBottom:14,fontSize:13,color:'#2e7d32',fontWeight:'bold'}}>✓ {selected.size} דגמים נבחרו</div>}
-
-      <div style={{fontWeight:'bold',fontSize:13,marginBottom:10,color:'#333'}}>העבר אל:</div>
-      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
-        {data.brands.map(b=>(
-          <button key={b.id} onClick={()=>{setToBid(b.id);setToCid('');}}
-            style={{padding:'7px 14px',borderRadius:20,border:`2px solid ${toBid===b.id?b.color:'#ddd'}`,background:toBid===b.id?b.color:'#fff',color:toBid===b.id?'#fff':'#555',cursor:'pointer',fontWeight:'bold',fontSize:13}}>
-            {b.name}
-          </button>
-        ))}
-      </div>
-      {targetBrand&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:14}}>
-        {targetBrand.categories.map(c=>(
-          <div key={c.id} onClick={()=>setToCid(c.id)}
-            style={{padding:'8px 12px',borderRadius:8,border:`2px solid ${toCid===c.id?targetBrand.color:'#eee'}`,cursor:'pointer',background:toCid===c.id?targetBrand.light:'#fff',fontSize:12,color:'#333',fontWeight:toCid===c.id?'bold':'normal'}}>
-            {c.name}
+    {open&&<>
+      {brand.categories.map(c=>(
+        <div key={c.id}>
+          <div style={{display:'flex',alignItems:'center',background:'var(--row2)',borderBottom:'1px solid var(--border)',minHeight:36}}>
+            {editCat?.id===c.id&&admin
+              ?<div style={{flex:1,display:'flex',gap:4,padding:'4px 8px'}}>
+                 <input value={editCat.name} autoFocus onChange={e=>setEditCat({id:c.id,name:e.target.value})}
+                   onKeyDown={e=>{if(e.key==='Enter'){onEditCat(c.id,editCat.name);setEditCat(null);}if(e.key==='Escape')setEditCat(null);}}
+                   style={{flex:1,border:'1px solid var(--border)',borderRadius:4,padding:'3px 6px',fontSize:12,color:'var(--inp)',background:'var(--ibg)'}}/>
+                 <button onClick={()=>{onEditCat(c.id,editCat.name);setEditCat(null);}} style={{background:brand.color,color:'#fff',border:'none',borderRadius:4,padding:'2px 8px',cursor:'pointer',fontSize:11}}>✓</button>
+                 <button onClick={()=>setEditCat(null)} style={{background:'var(--border)',border:'none',borderRadius:4,padding:'2px 6px',cursor:'pointer',fontSize:11,color:'var(--text)'}}>✕</button>
+               </div>
+              :<div onClick={()=>toggleCat(c.id)} style={{flex:1,padding:'8px 14px 8px 20px',cursor:'pointer',color:'var(--sub)',fontSize:13,userSelect:'none',display:'flex',alignItems:'center'}}>
+                 <span style={{flex:1}}>{c.name}</span><span style={{fontSize:10}}>{openCats[c.id]?'▲':'▼'}</span>
+               </div>
+            }
+            {admin&&editCat?.id!==c.id&&(
+              <div style={{display:'flex',flexShrink:0,paddingLeft:4}}>
+                <button onClick={e=>{e.stopPropagation();startAdd(c.id);}} style={{background:'none',border:'none',color:brand.color,cursor:'pointer',fontSize:20,fontWeight:'bold',padding:'2px 6px',lineHeight:1}}>+</button>
+                <button onClick={e=>{e.stopPropagation();setEditCat({id:c.id,name:c.name});}} style={{background:'none',border:'none',color:'var(--sub)',cursor:'pointer',fontSize:13,padding:'2px 4px'}}>✏</button>
+                <button onClick={e=>{e.stopPropagation();onDelCat(c.id);}} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13,padding:'2px 5px'}}>🗑</button>
+              </div>
+            )}
+            {editor&&!admin&&editCat?.id!==c.id&&(
+              <button onClick={e=>{e.stopPropagation();startAdd(c.id);}} style={{background:'none',border:'none',color:brand.color,cursor:'pointer',fontSize:20,fontWeight:'bold',padding:'2px 8px',lineHeight:1}}>+</button>
+            )}
           </div>
-        ))}
-      </div>}
-      <div style={{display:'flex',gap:8}}>
-        <button onClick={doMove} style={{flex:1,...BPr('#1565c0')}}>✓ העבר {selected.size>0?`(${selected.size})`:''}  </button>
-        <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
-      </div>
-    </Modal>
-  );
-}
-
-// ══════════ EXCEL IMPORT MODAL ══════════
-function XlsImportModal({data,onImport,onClose}){
-  const[rows,setRows]=useState([]);
-  const[fileName,setFileName]=useState('');
-  const[toBid,setToBid]=useState(data.brands[0]?.id||'');
-  const[toCid,setToCid]=useState(data.brands[0]?.categories[0]?.id||'');
-  const[colMap,setColMap]=useState({model:0,nameHe:1,tadPn:2,nameEn:3,mfgPn:4});
-  const[step,setStep]=useState(1);
-  const[previewGroups,setPreviewGroups]=useState([]);
-  const[excluded,setExcluded]=useState(new Set());
-  const targetBrand=data.brands.find(b=>b.id===toBid);
-
-  const parseFile=e=>{
-    const f=e.target.files[0];if(!f)return;
-    setFileName(f.name);
-    const reader=new FileReader();
-    reader.onload=ev=>{
-      const wb=XLSX.read(ev.target.result,{type:'binary'});
-      const ws=wb.Sheets[wb.SheetNames[0]];
-      const all=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
-      const firstCell=String(all[0]?.[0]||'').toLowerCase();
-      const dataRows=(firstCell.includes('דגם')||firstCell.includes('model')||firstCell.includes('שם'))?all.slice(1):all;
-      setRows(dataRows.filter(r=>r.some(c=>String(c).trim())));
-      setStep(2);
-    };
-    reader.readAsBinaryString(f);e.target.value='';
-  };
-
-  const buildPreview=()=>{
-    const grouped={};
-    rows.forEach(r=>{
-      const mn=String(r[colMap.model]||'').trim();if(!mn)return;
-      grouped[mn]=(grouped[mn]||0)+1;
-    });
-    setPreviewGroups(Object.entries(grouped));
-    setExcluded(new Set());
-    setStep(3);
-  };
-
-  const colLabel=i=>{
-    const sample=rows.slice(0,3).map(r=>String(r[i]||'').trim()).filter(Boolean).join(', ');
-    return `עמודה ${i+1}${sample?' ('+sample.slice(0,28)+')':''}`;
-  };
-  const maxCols=rows[0]?rows[0].length:6;
-  const colOptions=Array.from({length:maxCols},(_,i)=>i);
-  const fieldLabels=[
-    ['model','שם הדגם (עמודת מפתח)'],
-    ['nameHe','שם בעברית'],
-    ['tadPn','מק"ט תדיראן'],
-    ['nameEn','שם באנגלית'],
-    ['mfgPn','מק"ט יצרן'],
-  ];
-
-  const toggleExclude=name=>setExcluded(p=>{const n=new Set(p);n.has(name)?n.delete(name):n.add(name);return n;});
-  const includedCount=previewGroups.filter(([name])=>!excluded.has(name)).length;
-  const includedParts=previewGroups.filter(([name])=>!excluded.has(name)).reduce((s,[,c])=>s+c,0);
-
-  return(
-    <Modal onClose={onClose} wide title="📥 ייבוא חלקים מ-Excel">
-      <div style={{display:'flex',gap:4,marginBottom:20}}>
-        {['1. העלאה','2. מיפוי עמודות','3. בחר דגמים'].map((s,i)=>(
-          <div key={i} style={{flex:1,textAlign:'center',padding:'6px 0',borderRadius:6,fontSize:12,fontWeight:'bold',
-            background:step===i+1?'#1565c0':step>i+1?'#4caf50':'#f0f0f0',color:step>=i+1?'#fff':'#aaa'}}>{s}</div>
-        ))}
-      </div>
-
-      {step===1&&(
-        <div>
-          <div style={{background:'#e3f2fd',borderRadius:10,padding:14,marginBottom:14,fontSize:13,color:'#1565c0'}}>
-            <div style={{fontWeight:'bold',marginBottom:6}}>📋 פורמט הקובץ:</div>
-            <div style={{fontFamily:'monospace',fontSize:11,background:'#fff',borderRadius:6,padding:8}}>דגם | שם בעברית | מק"ט תדיראן | שם באנגלית | מק"ט יצרן</div>
-            <div style={{marginTop:8,fontSize:11}}>ניתן לשנות את סדר העמודות בשלב הבא</div>
-          </div>
-          <label style={{display:'block',border:'2px dashed #1565c0',borderRadius:12,padding:'32px 20px',textAlign:'center',cursor:'pointer',background:'#f8fbff'}}>
-            <div style={{fontSize:40,marginBottom:8}}>📊</div>
-            <div style={{fontWeight:'bold',color:'#1565c0',fontSize:15,marginBottom:4}}>לחץ לבחירת קובץ Excel</div>
-            <div style={{color:'#aaa',fontSize:12}}>תומך XLSX, XLS, CSV</div>
-            <input type="file" accept=".xlsx,.xls,.csv" onChange={parseFile} style={{display:'none'}}/>
-          </label>
-        </div>
-      )}
-
-      {step===2&&(
-        <div>
-          <div style={{background:'#e8f5e9',borderRadius:8,padding:10,marginBottom:14,fontSize:12,color:'#2e7d32'}}>
-            ✓ נטען: <strong>{fileName}</strong> — {rows.length} שורות
-          </div>
-          <div style={{marginBottom:14}}>
-            <div style={{fontWeight:'bold',fontSize:13,marginBottom:10}}>מיפוי עמודות:</div>
-            {fieldLabels.map(([key,label])=>(
-              <div key={key} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
-                <span style={{width:140,fontSize:12,color:'#555',flexShrink:0}}>{label}:</span>
-                <select value={colMap[key]} onChange={e=>setColMap(p=>({...p,[key]:Number(e.target.value)}))}
-                  style={{flex:1,border:'1px solid #ddd',borderRadius:6,padding:'6px 10px',fontSize:12,color:'#333'}}>
-                  {colOptions.map(i=><option key={i} value={i}>{colLabel(i)}</option>)}
-                </select>
+          {openCats[c.id]&&<>
+            {addingMod===c.id&&(
+              <div style={{padding:'6px 10px',background:'var(--row2)',display:'flex',gap:6,borderBottom:'1px solid var(--border)'}}>
+                <input ref={modRef} value={newModName} onChange={e=>setNewModName(e.target.value)}
+                  onKeyDown={e=>{if(e.key==='Enter')doAddMod(c.id);if(e.key==='Escape'){setAddingMod(null);setNewModName('');}}}
+                  placeholder="שם הדגם..." style={{flex:1,border:'1px solid var(--border)',borderRadius:4,padding:'5px 8px',fontSize:12,color:'var(--inp)',background:'var(--ibg)'}}/>
+                <button onClick={()=>doAddMod(c.id)} style={{background:brand.color,color:'#fff',border:'none',borderRadius:4,padding:'5px 10px',cursor:'pointer',fontSize:12}}>הוסף</button>
+                <button onClick={()=>{setAddingMod(null);setNewModName('');}} style={{background:'var(--border)',border:'none',borderRadius:4,padding:'5px 8px',cursor:'pointer',fontSize:12,color:'var(--text)'}}>✕</button>
+              </div>
+            )}
+            {c.models.map(m=>(
+              <div key={m.id} style={{display:'flex',alignItems:'center',borderBottom:'1px solid var(--border)'}}>
+                <div onClick={()=>onNav(brand.id,c.id,m.id)}
+                  style={{flex:1,padding:'8px 10px 8px 26px',cursor:'pointer',fontSize:13,
+                    color:sel?.mid===m.id?brand.color:'var(--text)',fontWeight:sel?.mid===m.id?'bold':'normal',
+                    background:sel?.mid===m.id?brand.light+'88':'transparent',
+                    borderRight:sel?.mid===m.id?`3px solid ${brand.color}`:'3px solid transparent'}}>
+                  {m.name}
+                  {m.synonyms?.length>0&&<div style={{fontSize:10,color:'var(--sub)',marginTop:2}}>{m.synonyms.join(' | ')}</div>}
+                </div>
+                <button onClick={()=>onToggleFav(m.id)} style={{background:'none',border:'none',fontSize:13,cursor:'pointer',padding:'0 4px'}}>{favorites.has(m.id)?'⭐':'☆'}</button>
+                {admin&&<button onClick={()=>onDelModel(c.id,m.id)} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13,padding:'0 8px'}}>🗑</button>}
               </div>
             ))}
-          </div>
-          <div style={{marginBottom:14}}>
-            <div style={{fontWeight:'bold',fontSize:13,marginBottom:10}}>ייבא אל:</div>
-            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
-              {data.brands.map(b=>(
-                <button key={b.id} onClick={()=>{setToBid(b.id);setToCid(b.categories[0]?.id||'');}}
-                  style={{padding:'7px 14px',borderRadius:20,border:`2px solid ${toBid===b.id?b.color:'#ddd'}`,background:toBid===b.id?b.color:'#fff',color:toBid===b.id?'#fff':'#555',cursor:'pointer',fontWeight:'bold',fontSize:13}}>
-                  {b.name}
-                </button>
-              ))}
-            </div>
-            {targetBrand&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
-              {targetBrand.categories.map(c=>(
-                <div key={c.id} onClick={()=>setToCid(c.id)}
-                  style={{padding:'8px 12px',borderRadius:8,border:`2px solid ${toCid===c.id?targetBrand.color:'#eee'}`,cursor:'pointer',background:toCid===c.id?targetBrand.light:'#fff',fontSize:12,color:'#333',fontWeight:toCid===c.id?'bold':'normal'}}>
-                  {c.name}
-                </div>
-              ))}
-            </div>}
-          </div>
-          <div style={{display:'flex',gap:8}}>
-            <button onClick={buildPreview} disabled={!toCid} style={{flex:1,...BPr(toCid?'#1565c0':'#ccc')}}>הבא ▶</button>
-            <button onClick={()=>setStep(1)} style={{...BST,padding:'10px 16px',borderRadius:8}}>חזור</button>
-          </div>
+            {!c.models.length&&<div style={{padding:'7px 26px',color:'var(--sub)',fontSize:12}}>אין דגמים</div>}
+          </>}
         </div>
+      ))}
+      {admin&&(addingCat
+        ?<div style={{padding:'6px 10px',background:'var(--row2)',display:'flex',gap:6}}>
+           <input value={newCatName} autoFocus onChange={e=>setNewCatName(e.target.value)}
+             onKeyDown={e=>{if(e.key==='Enter'&&newCatName.trim()){onAddCat(newCatName.trim());setNewCatName('');setAddingCat(false);}if(e.key==='Escape')setAddingCat(false);}}
+             placeholder="שם קטגוריה..." style={{flex:1,border:'1px solid var(--border)',borderRadius:4,padding:'5px 8px',fontSize:12,color:'var(--inp)',background:'var(--ibg)'}}/>
+           <button onClick={()=>{if(newCatName.trim()){onAddCat(newCatName.trim());setNewCatName('');setAddingCat(false);}}} style={{background:brand.color,color:'#fff',border:'none',borderRadius:4,padding:'5px 10px',cursor:'pointer',fontSize:12}}>הוסף</button>
+           <button onClick={()=>setAddingCat(false)} style={{background:'var(--border)',border:'none',borderRadius:4,padding:'5px 8px',cursor:'pointer',fontSize:12,color:'var(--text)'}}>✕</button>
+         </div>
+        :<button onClick={()=>setAddingCat(true)} style={{width:'100%',padding:'8px',background:'none',border:'none',borderTop:'1px dashed var(--border)',color:brand.color,cursor:'pointer',fontSize:12,fontWeight:'bold'}}>+ הוסף קטגוריה</button>
       )}
-
-      {step===3&&(
-        <div>
-          <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:10}}>
-            <div style={{fontWeight:'bold',fontSize:13}}>בחר דגמים לייבוא ({previewGroups.length} דגמים):</div>
-            <button onClick={()=>setExcluded(new Set())} style={{...sB('#4caf50'),marginRight:'auto'}}>בחר הכל</button>
-            <button onClick={()=>setExcluded(new Set(previewGroups.map(([n])=>n)))} style={sB('#9e9e9e')}>בטל הכל</button>
-          </div>
-          <div style={{maxHeight:'38vh',overflowY:'auto',border:'1px solid #eee',borderRadius:8,marginBottom:12}}>
-            {previewGroups.map(([name,count])=>{
-              const isExcluded=excluded.has(name);
-              const exists=targetBrand?.categories.find(c=>c.id===toCid)?.models.some(m=>m.name===name);
-              return(
-                <div key={name} onClick={()=>toggleExclude(name)}
-                  style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',background:isExcluded?'#fafafa':'#fff',opacity:isExcluded?.45:1}}
-                  onMouseEnter={e=>e.currentTarget.style.background=isExcluded?'#f5f5f5':'#f0f7ff'}
-                  onMouseLeave={e=>e.currentTarget.style.background=isExcluded?'#fafafa':'#fff'}>
-                  <input type="checkbox" checked={!isExcluded} readOnly style={{width:16,height:16,flexShrink:0}}/>
-                  <span style={{flex:1,fontWeight:'bold',color:isExcluded?'#aaa':'#333',fontSize:13}}>{name}</span>
-                  <span style={{color:targetBrand?.color,fontSize:11,fontWeight:'bold'}}>{count} חלקים</span>
-                  {exists
-                    ?<span style={{background:'#fff3e0',color:'#e65100',padding:'1px 6px',borderRadius:4,fontSize:10}}>יתווסף</span>
-                    :<span style={{background:'#e8f5e9',color:'#2e7d32',padding:'1px 6px',borderRadius:4,fontSize:10}}>חדש</span>}
-                </div>
-              );
-            })}
-          </div>
-          <div style={{background:'#f3e5f5',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:13,color:'#6a1b9a'}}>
-            יוייבאו: <strong>{includedCount} דגמים</strong> עם <strong>{includedParts.toLocaleString()} חלקים</strong>
-            {' '}→ <strong>{targetBrand?.name}</strong> / <strong>{targetBrand?.categories.find(c=>c.id===toCid)?.name}</strong>
-          </div>
-          <div style={{display:'flex',gap:8}}>
-            <button onClick={()=>{
-              const res=onImport(rows,colMap,toBid,toCid,excluded);
-              alert(`✅ יובאו ${res.models} דגמים עם ${res.parts.toLocaleString()} חלקים`);
-              onClose();
-            }} disabled={includedCount===0} style={{flex:1,...BPr(includedCount>0?'#4caf50':'#ccc')}}>✅ ייבא</button>
-            <button onClick={()=>setStep(2)} style={{...BST,padding:'10px 16px',borderRadius:8}}>חזור</button>
-          </div>
-        </div>
-      )}
-    </Modal>
-  );
+    </>}
+  </div>);
 }
 
 // ══════════ MODEL VIEW ══════════
-function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,onCell,onColName,onMoveCol,onAddCol,onDelCol,onPaste,onImgUpload,onDelImg,onImgUrl,onOpenImg,onMove,onDuplicate,onCopyPartsFrom}){
+function ModelView({brand,cat,model,editor,admin,hq,data,favorites,onToggleFav,onUpdate,onAddPart,onDelPart,onCell,onColName,onMoveCol,onAddCol,onDelCol,onPaste,onImgUpload,onDelImg,onImgUrl,onOpenImg,onMove,onDuplicate,onCopyPartsFrom}){
   const[synIn,setSynIn]=useState(model.synonyms?.join(', ')||'');
   const[editSyn,setEditSyn]=useState(false);
   const[imgUrl,setImgUrl]=useState('');
@@ -1101,19 +715,7 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
   const[pasteText,setPasteText]=useState('');
   const[showMove,setShowMove]=useState(false);
   const[showCopy,setShowCopy]=useState(false);
-  const[selectedRows,setSelectedRows]=useState(new Set());
-  const toggleRow=id=>setSelectedRows(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
-  const clearRows=()=>setSelectedRows(new Set());
-  const sendWhatsApp=()=>{
-    const selParts=model.parts.filter(p=>selectedRows.has(p.id));
-    const header=`🔧 *${brand.name} — ${model.name}*\n${cat.name}\n${'─'.repeat(30)}`;
-    const lines=selParts.map((p,i)=>{
-      const vals=model.columns.map(c=>{const v=(p.values[c.id]||'').trim();return v?`${c.name}: ${v}`:'';}).filter(Boolean);
-      return `*${i+1}.* ${vals.join(' | ')}`;
-    }).join('\n');
-    const msg=`${header}\n\n${lines}\n\n_סה"כ ${selParts.length} חלקים_`;
-    window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');
-  };
+  const[selRows,setSelRows]=useState(new Set());
   const firstHiRef=useRef(null);
   const q=hq.trim().toLowerCase();
   const images=model.images||[];
@@ -1125,317 +727,499 @@ function ModelView({brand,cat,model,admin,hq,data,onUpdate,onAddPart,onDelPart,o
   const filtered=filter?model.parts.filter(p=>Object.values(p.values).some(v=>String(v).toLowerCase().includes(filter.toLowerCase()))):model.parts;
   const rowHi=p=>q&&Object.values(p.values).some(v=>String(v).toLowerCase().includes(q));
   const cellHi=v=>q&&String(v).toLowerCase().includes(q);
-  const submitPaste=()=>{
-    const rows=pasteText.trim().split('\n').map(r=>r.split('\t').map(c=>c.trim())).filter(r=>r.some(c=>c));
-    if(rows.length){onPaste(rows);setPasteText('');setShowPaste(false);}
+  const submitPaste=()=>{const rows=pasteText.trim().split('\n').map(r=>r.split('\t').map(c=>c.trim())).filter(r=>r.some(c=>c));if(rows.length){onPaste(rows);setPasteText('');setShowPaste(false);}};
+
+  const toggleRow=id=>setSelRows(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
+  const clearRows=()=>setSelRows(new Set());
+
+  const sendWhatsApp=()=>{
+    const sp=model.parts.filter(p=>selRows.has(p.id));
+    const hdr=`🔧 *${brand.name} — ${model.name}*\n📂 ${cat.name}\n${'─'.repeat(28)}`;
+    const lines=sp.map((p,i)=>{const vals=model.columns.map(c=>{const v=(p.values[c.id]||'').trim();return v?`${c.name}: ${v}`:'';}).filter(Boolean);return`*${i+1}.* ${vals.join(' | ')}`;}).join('\n');
+    window.open('https://wa.me/?text='+encodeURIComponent(`${hdr}\n\n${lines}\n\n_סה"כ ${sp.length} חלקים_`),'_blank');
   };
-  const printModel=()=>{
+
+  const exportPDF=()=>{
     const w=window.open('','_blank');
-    const rows=model.parts.map(p=>`<tr>${model.columns.map(c=>`<td style="padding:6px 10px;border:1px solid #ddd">${p.values[c.id]||''}</td>`).join('')}</tr>`).join('');
-    const imgs=images.map(img=>`<img src="${img}" style="max-width:48%;max-height:220px;border:1px solid #ddd;border-radius:6px;margin:4px">`).join('');
-    w.document.write(`<html dir="rtl"><head><meta charset="UTF-8"><title>${model.name}</title>
-      <style>body{font-family:Arial;padding:20px}table{border-collapse:collapse;width:100%}th{background:${brand.color};color:#fff;padding:8px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}</style></head>
-      <body><h2 style="color:${brand.color}">🔧 ${brand.name} — ${model.name}</h2>
-      <p style="color:#777">${cat.name}${model.synonyms?.length?' | '+model.synonyms.join(', '):''}</p>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0">${imgs}</div>
-      <p style="color:#aaa;font-size:12px">${model.parts.length} חלקים | ${new Date().toLocaleDateString('he-IL')}</p>
-      <table><thead><tr>${model.columns.map(c=>`<th>${c.name}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></body></html>`);
-    w.document.close();w.print();
+    const rows=model.parts.map(p=>`<tr>${model.columns.map(c=>`<td>${p.values[c.id]||''}</td>`).join('')}</tr>`).join('');
+    const imgs=images.map(img=>`<img src="${img}" style="max-width:300px;max-height:220px;border:1px solid #ddd;border-radius:6px;margin:4px;object-fit:contain">`).join('');
+    const notesHtml=model.notes?`<div style="background:#fff3f3;border-right:4px solid #e53935;padding:10px 14px;border-radius:6px;color:#e53935;font-weight:bold;margin:10px 0">${model.notes}</div>`:'';
+    w.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>${model.name}</title>
+      <style>
+        body{font-family:Arial,sans-serif;padding:30px;color:#1a1a2a;direction:rtl}
+        h1{color:${brand.color};font-size:22px;margin-bottom:4px}
+        .sub{color:#6b7280;font-size:13px;margin-bottom:14px}
+        table{border-collapse:collapse;width:100%;margin-top:14px;font-size:13px}
+        th{background:${brand.color};color:#fff;padding:9px 12px;text-align:right;font-weight:bold}
+        td{border:1px solid #e5e7eb;padding:7px 12px}
+        tr:nth-child(even){background:#f9fafb}
+        .imgs{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+        .meta{font-size:11px;color:#94a3b8;margin-top:8px}
+        @page{margin:20mm}
+        @media print{body{padding:0}}
+      </style></head><body>
+      <h1>🔧 ${brand.name} — ${model.name}</h1>
+      <div class="sub">${cat.name}${model.synonyms?.length?' · '+model.synonyms.join(', '):''}</div>
+      ${notesHtml}
+      ${imgs?`<div class="imgs">${imgs}</div>`:''}
+      <table><thead><tr>${model.columns.map(c=>`<th>${c.name}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
+      <div class="meta">${model.parts.length} חלקים · הודפס: ${new Date().toLocaleDateString('he-IL')} ${new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}</div>
+      <script>window.onload=()=>window.print();<\/script></body></html>`);
+    w.document.close();
   };
-  const exportModelXLS=()=>{
-    const wb=XLSX.utils.book_new();
-    const ws=XLSX.utils.aoa_to_sheet([model.columns.map(c=>c.name),...model.parts.map(p=>model.columns.map(c=>p.values[c.id]||''))]);
-    XLSX.utils.book_append_sheet(wb,ws,model.name.slice(0,31));
-    XLSX.writeFile(wb,`${brand.name}-${model.name}.xlsx`);
-  };
-  const shareLink=()=>{
-    const url=window.location.href.split('?')[0]+`?b=${brand.id}&c=${cat.id}&m=${model.id}`;
-    navigator.clipboard?.writeText(url).then(()=>alert('✅ קישור הועתק')).catch(()=>alert('קישור:\n'+url));
-  };
+
+  const exportModelXLS=()=>{const wb=XLSX.utils.book_new();const ws=XLSX.utils.aoa_to_sheet([model.columns.map(c=>c.name),...model.parts.map(p=>model.columns.map(c=>p.values[c.id]||''))]);XLSX.utils.book_append_sheet(wb,ws,model.name.slice(0,31));XLSX.writeFile(wb,`${brand.name}-${model.name}.xlsx`);};
+
+  const shareLink=()=>{const url=window.location.href.split('?')[0]+`?b=${brand.id}&c=${cat.id}&m=${model.id}`;navigator.clipboard?.writeText(url).then(()=>alert('✅ קישור הועתק')).catch(()=>alert('קישור:\n'+url));};
 
   let firstHiSet=false;
-  return(
-    <div style={{maxWidth:1100,margin:'0 auto'}}>
-      {/* Header */}
-      <div style={{background:'#fff',borderRadius:12,padding:'14px 16px',marginBottom:12,boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:8}}>
-          <span style={{background:brand.color,color:'#fff',padding:'3px 10px',borderRadius:20,fontSize:12,fontWeight:'bold'}}>{brand.name}</span>
-          <span style={{color:'#999',fontSize:12}}>{cat.name}</span>
-          <span style={{fontSize:17,fontWeight:'bold',color:'#222'}}>◈ {model.name}</span>
-          <span style={{marginRight:'auto',color:'#aaa',fontSize:11}}>{model.parts.length.toLocaleString()} חלקים</span>
-        </div>
-        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',fontSize:12,marginBottom:10}}>
-          <span style={{color:'#999'}}>שמות נרדפים:</span>
-          {!editSyn
-            ?<><span style={{color:'#555'}}>{model.synonyms?.length?model.synonyms.join(' | '):'—'}</span>
-               {admin&&<button onClick={()=>setEditSyn(true)} style={sB(brand.color)}>✏ עריכה</button>}</>
-            :<><input value={synIn} onChange={e=>setSynIn(e.target.value)} placeholder="שם1, שם2"
-                style={{border:'1px solid #ddd',borderRadius:4,padding:'3px 8px',fontSize:12,width:200,color:'#333'}}/>
-               <button onClick={saveSyn} style={sB('#4caf50')}>✓ שמור</button>
-               <button onClick={()=>setEditSyn(false)} style={sB('#9e9e9e')}>ביטול</button></>
-          }
-        </div>
-        <div style={{display:'flex',gap:6,flexWrap:'wrap',borderTop:'1px solid #f0f0f0',paddingTop:10}}>
-          <button onClick={printModel}     style={sB('#546e7a')}>🖨️ הדפס</button>
-          <button onClick={exportModelXLS} style={sB('#388e3c')}>📊 Excel</button>
-          <button onClick={shareLink}      style={sB('#7b1fa2')}>🔗 שתף</button>
-          {admin&&<>
-            <button onClick={()=>setShowMove(true)}  style={sB('#e65100')}>🔀 העבר</button>
-            <button onClick={()=>{if(confirm('לשכפל דגם?'))onDuplicate();}} style={sB('#0277bd')}>⧉ שכפל</button>
-            <button onClick={()=>setShowCopy(true)}  style={sB('#558b2f')}>📋 העתק חלקים</button>
-          </>}
-        </div>
-      </div>
 
-      {/* Images — hidden if no admin and no images */}
-      {(admin||(images.length>0))&&(
-      <div style={{background:'#fff',borderRadius:12,padding:'14px 16px',marginBottom:12,boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
+  return(<div style={{maxWidth:1100,margin:'0 auto'}}>
+
+    {/* Header card */}
+    <div style={{background:'var(--card)',borderRadius:12,padding:'14px 16px',marginBottom:12,boxShadow:'0 1px 4px var(--shadow)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:8}}>
+        <span style={{background:brand.color,color:'#fff',padding:'3px 10px',borderRadius:20,fontSize:12,fontWeight:'bold'}}>{brand.name}</span>
+        <span style={{color:'var(--sub)',fontSize:12}}>{cat.name}</span>
+        <span style={{fontSize:17,fontWeight:'bold',color:'var(--text)'}}>◈ {model.name}</span>
+        <button onClick={()=>onToggleFav(model.id)} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',marginRight:'auto'}}>{favorites.has(model.id)?'⭐':'☆'}</button>
+        <span style={{color:'var(--sub)',fontSize:11}}>{model.parts.length.toLocaleString()} חלקים</span>
+      </div>
+      {/* Synonyms */}
+      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',fontSize:12,marginBottom:10}}>
+        <span style={{color:'var(--sub)'}}>שמות נרדפים:</span>
+        {!editSyn
+          ?<><span style={{color:'var(--text)'}}>{model.synonyms?.length?model.synonyms.join(' | '):'—'}</span>
+             {editor&&<button onClick={()=>setEditSyn(true)} style={sB(brand.color)}>✏ עריכה</button>}</>
+          :<><input value={synIn} onChange={e=>setSynIn(e.target.value)} placeholder="שם1, שם2"
+              style={{border:'1px solid var(--border)',borderRadius:4,padding:'3px 8px',fontSize:12,width:200,color:'var(--inp)',background:'var(--ibg)'}}/>
+             <button onClick={saveSyn} style={sB('#4caf50')}>✓</button>
+             <button onClick={()=>setEditSyn(false)} style={sB('#9e9e9e')}>✕</button></>
+        }
+      </div>
+      {/* Toolbar */}
+      <div style={{display:'flex',gap:6,flexWrap:'wrap',borderTop:'1px solid var(--border)',paddingTop:10}}>
+        <button onClick={exportPDF}      style={sB('#546e7a')}>🖨️ PDF</button>
+        <button onClick={exportModelXLS} style={sB('#388e3c')}>📊 Excel</button>
+        <button onClick={shareLink}      style={sB('#7b1fa2')}>🔗 שתף</button>
+        {editor&&<>
+          <button onClick={()=>setShowMove(true)} style={sB('#e65100')}>🔀 העבר</button>
+          <button onClick={()=>{if(confirm('לשכפל?'))onDuplicate();}} style={sB('#0277bd')}>⧉ שכפל</button>
+          <button onClick={()=>setShowCopy(true)} style={sB('#558b2f')}>📋 העתק חלקים</button>
+        </>}
+      </div>
+    </div>
+
+    {/* Notes */}
+    {(editor||model.notes)&&(
+      <div style={{background:'var(--card)',borderRadius:12,padding:'14px 16px',marginBottom:12,boxShadow:'0 1px 4px var(--shadow)'}}>
+        <div style={{fontWeight:'bold',fontSize:13,marginBottom:8,color:'var(--text)'}}>📝 הערות</div>
+        {editor
+          ?<textarea value={model.notes||''} onChange={e=>onUpdate({notes:e.target.value})}
+             placeholder="הוסף הערות חשובות (יוצגו באדום לטכנאים)..."
+             style={{width:'100%',border:'1px solid var(--border)',borderRadius:8,padding:'10px',fontSize:13,resize:'vertical',minHeight:72,color:'#e53935',background:'var(--ibg)',fontFamily:'Arial',lineHeight:1.6,boxSizing:'border-box'}}/>
+          :<div style={{color:'#e53935',fontSize:14,lineHeight:1.7,fontWeight:'600',whiteSpace:'pre-wrap'}}>{model.notes}</div>
+        }
+      </div>
+    )}
+
+    {/* Images */}
+    {(editor||images.length>0)&&(
+      <div style={{background:'var(--card)',borderRadius:12,padding:'14px 16px',marginBottom:12,boxShadow:'0 1px 4px var(--shadow)'}}>
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,flexWrap:'wrap'}}>
-          <span style={{fontWeight:'bold',fontSize:14}}>📐 שרטוטים טכניים</span>
-          {admin&&<>
+          <span style={{fontWeight:'bold',fontSize:14,color:'var(--text)'}}>📐 שרטוטים</span>
+          {editor&&<>
             <label style={{...sB(brand.color),cursor:'pointer'}}>📁 העלה<input type="file" accept="image/*" multiple onChange={onImgUpload} style={{display:'none'}}/></label>
             <button onClick={()=>setEditUrl(v=>!v)} style={sB('#607d8b')}>🔗 URL</button>
           </>}
-          {images.length>0&&<span style={{color:'#aaa',fontSize:11,marginRight:'auto'}}>{images.length} תמונות</span>}
+          {images.length>0&&<span style={{color:'var(--sub)',fontSize:11,marginRight:'auto'}}>{images.length} תמונות</span>}
         </div>
-        {editUrl&&admin&&(
-          <div style={{display:'flex',gap:8,marginBottom:10}}>
-            <input value={imgUrl} onChange={e=>setImgUrl(e.target.value)} placeholder="https://..."
-              style={{flex:1,border:'1px solid #ddd',borderRadius:6,padding:'7px 10px',fontSize:13,color:'#333'}}/>
-            <button onClick={()=>{if(imgUrl.trim()){onImgUrl(imgUrl.trim());setImgUrl('');setEditUrl(false);}}} style={{background:brand.color,color:'#fff',border:'none',borderRadius:6,padding:'7px 14px',cursor:'pointer'}}>הוסף</button>
-            <button onClick={()=>setEditUrl(false)} style={{...BST,padding:'7px 12px',borderRadius:6}}>ביטול</button>
-          </div>
-        )}
+        {editUrl&&editor&&(<div style={{display:'flex',gap:8,marginBottom:10}}>
+          <input value={imgUrl} onChange={e=>setImgUrl(e.target.value)} placeholder="https://..."
+            style={{flex:1,border:'1px solid var(--border)',borderRadius:6,padding:'7px 10px',fontSize:13,color:'var(--inp)',background:'var(--ibg)'}}/>
+          <button onClick={()=>{if(imgUrl.trim()){onImgUrl(imgUrl.trim());setImgUrl('');setEditUrl(false);}}} style={{background:brand.color,color:'#fff',border:'none',borderRadius:6,padding:'7px 14px',cursor:'pointer'}}>הוסף</button>
+        </div>)}
         {images.length>0
-          ?<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:10}}>
+          ?<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:8}}>
              {images.map((img,idx)=>(
-               <div key={idx} style={{position:'relative',borderRadius:8,overflow:'hidden',border:'2px solid #e0e0e0',background:'#fafafa'}}>
-                 <img src={img} alt={`שרטוט ${idx+1}`} onClick={()=>onOpenImg(images,idx)}
-                   style={{width:'100%',height:130,objectFit:'contain',cursor:'zoom-in',display:'block'}}/>
-                 <div style={{padding:'4px 8px',display:'flex',alignItems:'center',justifyContent:'space-between',background:'#f5f5f5',borderTop:'1px solid #eee'}}>
-                   <span style={{fontSize:11,color:'#888'}}>תמונה {idx+1}</span>
-                   {admin&&<button onClick={()=>{if(confirm('למחוק?'))onDelImg(idx);}} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13}}>🗑</button>}
+               <div key={idx} style={{borderRadius:8,overflow:'hidden',border:'2px solid var(--border)',background:'var(--row2)'}}>
+                 <img src={img} alt={`שרטוט ${idx+1}`} onClick={()=>onOpenImg(images,idx)} style={{width:'100%',height:120,objectFit:'contain',cursor:'zoom-in',display:'block'}}/>
+                 <div style={{padding:'3px 8px',display:'flex',alignItems:'center',justifyContent:'space-between',background:'var(--row2)',borderTop:'1px solid var(--border)'}}>
+                   <span style={{fontSize:10,color:'var(--sub)'}}>תמונה {idx+1}</span>
+                   {editor&&<button onClick={()=>{if(confirm('למחוק?'))onDelImg(idx);}} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13}}>🗑</button>}
                  </div>
                </div>
              ))}
            </div>
-          :<div style={{textAlign:'center',padding:24,background:'#fafafa',borderRadius:8,border:'2px dashed #e0e0e0',color:'#ccc',fontSize:13}}>
-             העלה שרטוטים טכניים
-           </div>
+          :<div style={{textAlign:'center',padding:24,background:'var(--row2)',borderRadius:8,border:'2px dashed var(--border)',color:'var(--sub)',fontSize:13}}>העלה שרטוטים טכניים</div>
         }
       </div>
+    )}
+
+    {/* Parts */}
+    <div style={{background:'var(--card)',borderRadius:12,padding:'14px 16px',boxShadow:'0 1px 4px var(--shadow)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+        <span style={{fontWeight:'bold',fontSize:14,color:'var(--text)'}}>🔩 רשימת חלקים</span>
+        <input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="סנן..."
+          style={{border:'1px solid var(--border)',borderRadius:16,padding:'5px 12px',fontSize:12,outline:'none',width:110,color:'var(--inp)',background:'var(--ibg)'}}/>
+        {editor&&<>
+          <button onClick={onAddPart} style={{...sB(brand.color),fontWeight:'bold'}}>+ שורה</button>
+          <button onClick={onAddCol}  style={sB('#607d8b')}>+ עמודה</button>
+          <button onClick={()=>setShowPaste(v=>!v)} style={sB('#e65100')}>📋 הדבק מאקסל</button>
+        </>}
+        <span style={{marginRight:'auto',color:'var(--sub)',fontSize:11}}>{filtered.length.toLocaleString()}/{model.parts.length.toLocaleString()}</span>
+      </div>
+
+      {/* WhatsApp bar */}
+      {selRows.size>0&&(
+        <div style={{position:'sticky',bottom:12,zIndex:100,background:'#25D366',borderRadius:12,padding:'11px 16px',display:'flex',alignItems:'center',gap:10,boxShadow:'0 4px 16px rgba(0,0,0,.25)',marginBottom:12,flexWrap:'wrap',animation:'fadeIn .2s'}}>
+          <span style={{color:'#fff',fontWeight:'bold',fontSize:13,flex:1}}>✓ {selRows.size} שורות נבחרו</span>
+          <button onClick={sendWhatsApp} style={{background:'#fff',border:'none',borderRadius:8,padding:'7px 16px',cursor:'pointer',fontWeight:'bold',color:'#25D366',fontSize:13}}>📱 שלח לווצאפ</button>
+          <button onClick={clearRows} style={{background:'rgba(255,255,255,.25)',border:'none',borderRadius:8,padding:'7px 12px',cursor:'pointer',color:'#fff',fontSize:12}}>ביטול</button>
+        </div>
       )}
 
-      {/* Parts */}
-      <div style={{background:'#fff',borderRadius:12,padding:'14px 16px',boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,flexWrap:'wrap'}}>
-          <span style={{fontWeight:'bold',fontSize:14}}>🔩 רשימת חלקים</span>
-          <input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="סנן..."
-            style={{border:'1px solid #e0e0e0',borderRadius:16,padding:'5px 12px',fontSize:12,outline:'none',width:120,color:'#333'}}/>
-          {admin&&<>
-            <button onClick={onAddPart} style={{...sB(brand.color),fontWeight:'bold'}}>+ שורה</button>
-            <button onClick={onAddCol}  style={sB('#607d8b')}>+ עמודה</button>
-            <button onClick={()=>setShowPaste(v=>!v)} style={sB('#e65100')}>📋 הדבק מאקסל</button>
-          </>}
-          <span style={{marginRight:'auto',color:'#aaa',fontSize:11}}>{filtered.length.toLocaleString()}/{model.parts.length.toLocaleString()}</span>
+      {showPaste&&editor&&(
+        <div style={{background:'#fff8e1',border:'1px solid #ffcc02',borderRadius:8,padding:12,marginBottom:12}}>
+          <div style={{fontSize:12,color:'#795548',marginBottom:4,fontWeight:'bold'}}>📋 סדר: {model.columns.map(c=>c.name).join(' ➔ ')}</div>
+          <div style={{fontSize:11,color:'#aaa',marginBottom:8}}>Excel → Ctrl+C → לחץ בתיבה → Ctrl+V</div>
+          <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder="הדבק כאן..."
+            rows={5} style={{width:'100%',border:'1px solid #ddd',borderRadius:6,padding:'8px 10px',fontSize:12,fontFamily:'monospace',resize:'vertical',boxSizing:'border-box',direction:'ltr',color:'#333'}}/>
+          {pasteText.trim()&&<div style={{fontSize:11,color:'#888',margin:'4px 0'}}>{pasteText.trim().split('\n').filter(r=>r.trim()).length} שורות</div>}
+          <div style={{display:'flex',gap:8,marginTop:8}}>
+            <button onClick={submitPaste} style={{...sB('#4caf50'),padding:'8px 20px',fontSize:13}}>✓ ייבא</button>
+            <button onClick={()=>{setPasteText('');setShowPaste(false);}} style={{...sB('#9e9e9e'),padding:'8px 14px',fontSize:13}}>ביטול</button>
+          </div>
         </div>
-        {showPaste&&admin&&(
-          <div style={{background:'#fff8e1',border:'1px solid #ffcc02',borderRadius:8,padding:12,marginBottom:12}}>
-            <div style={{fontSize:12,color:'#795548',marginBottom:4,fontWeight:'bold'}}>📋 סדר עמודות: {model.columns.map(c=>c.name).join(' ➔ ')}</div>
-            <div style={{fontSize:11,color:'#aaa',marginBottom:8}}>בחר שורות באקסל → Ctrl+C → לחץ בתיבה → Ctrl+V</div>
-            <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder="הדבק כאן..."
-              rows={5} style={{width:'100%',border:'1px solid #ddd',borderRadius:6,padding:'8px 10px',fontSize:12,fontFamily:'monospace',resize:'vertical',boxSizing:'border-box',direction:'ltr',color:'#333'}}/>
-            {pasteText.trim()&&<div style={{fontSize:11,color:'#888',margin:'4px 0'}}>{pasteText.trim().split('\n').filter(r=>r.trim()).length} שורות זוהו</div>}
-            <div style={{display:'flex',gap:8,marginTop:8}}>
-              <button onClick={submitPaste} style={{...sB('#4caf50'),padding:'8px 20px',fontSize:13}}>✓ ייבא</button>
-              <button onClick={()=>{setPasteText('');setShowPaste(false);}} style={{...sB('#9e9e9e'),padding:'8px 16px',fontSize:13}}>ביטול</button>
-            </div>
-          </div>
-        )}
-        {/* WhatsApp floating bar */}
-        {selectedRows.size>0&&(
-          <div style={{position:'sticky',bottom:12,zIndex:100,background:'#25D366',borderRadius:12,padding:'12px 16px',display:'flex',alignItems:'center',gap:10,boxShadow:'0 4px 16px rgba(0,0,0,.25)',margin:'0 0 12px',flexWrap:'wrap'}}>
-            <span style={{color:'#fff',fontWeight:'bold',fontSize:14,flex:1}}>✓ {selectedRows.size} שורות נבחרו</span>
-            <button onClick={sendWhatsApp} style={{background:'#fff',border:'none',borderRadius:8,padding:'8px 18px',cursor:'pointer',fontWeight:'bold',color:'#25D366',fontSize:14}}>
-              📱 שלח לווצאפ
-            </button>
-            <button onClick={clearRows} style={{background:'rgba(255,255,255,.25)',border:'none',borderRadius:8,padding:'8px 14px',cursor:'pointer',color:'#fff',fontSize:13}}>ביטול</button>
-          </div>
-        )}
-        <div style={{overflowX:'auto'}}>
-          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:360}}>
-            <thead>
-              <tr style={{background:brand.light}}>
-                <th style={{width:36,padding:'9px 6px',borderBottom:`2px solid ${brand.color}`}}>
-                  <div onClick={()=>{if(selectedRows.size===filtered.length)clearRows();else setSelectedRows(new Set(filtered.map(p=>p.id)));}}
-                    style={{width:18,height:18,borderRadius:4,border:`2px solid ${brand.color}`,background:selectedRows.size===filtered.length&&filtered.length>0?brand.color:'#fff',cursor:'pointer',margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                    {selectedRows.size===filtered.length&&filtered.length>0&&<span style={{color:'#fff',fontSize:11,fontWeight:'bold'}}>✓</span>}
-                  </div>
-                </th>
-                {model.columns.map((col,ci)=>(
-                  <th key={col.id} style={{padding:'9px 10px',textAlign:'right',color:'#333',fontWeight:'bold',borderBottom:`2px solid ${brand.color}`,whiteSpace:'nowrap',minWidth:90}}>
-                    {admin
-                      ?<div style={{display:'flex',alignItems:'center',gap:3}}>
-                         <div style={{display:'flex',flexDirection:'column',gap:1,flexShrink:0}}>
-                           <button onClick={()=>onMoveCol(col.id,-1)} disabled={ci===0} style={{background:'none',border:'none',cursor:ci===0?'default':'pointer',color:ci===0?'#ddd':'#888',fontSize:10,padding:0,lineHeight:1}}>◀</button>
-                           <button onClick={()=>onMoveCol(col.id,1)} disabled={ci===model.columns.length-1} style={{background:'none',border:'none',cursor:ci===model.columns.length-1?'default':'pointer',color:ci===model.columns.length-1?'#ddd':'#888',fontSize:10,padding:0,lineHeight:1}}>▶</button>
-                         </div>
-                         <input value={col.name} onChange={e=>onColName(col.id,e.target.value)}
-                           style={{border:'1px dashed #ccc',borderRadius:3,padding:'2px 5px',fontSize:12,fontWeight:'bold',width:'100%',minWidth:50,background:'transparent',color:'#333'}}/>
-                         {model.columns.length>1&&<button onClick={()=>onDelCol(col.id)} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:16,padding:0,lineHeight:1,flexShrink:0}}>×</button>}
+      )}
+
+      <div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:360}}>
+          <thead>
+            <tr style={{background:brand.light}}>
+              <th style={{width:36,padding:'9px 6px',borderBottom:`2px solid ${brand.color}`}}>
+                <div onClick={()=>{if(selRows.size===filtered.length&&filtered.length>0)clearRows();else setSelRows(new Set(filtered.map(p=>p.id)));}}
+                  style={{width:18,height:18,borderRadius:4,border:`2px solid ${brand.color}`,background:selRows.size===filtered.length&&filtered.length>0?brand.color:'transparent',cursor:'pointer',margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                  {selRows.size===filtered.length&&filtered.length>0&&<span style={{color:'#fff',fontSize:11,fontWeight:'bold'}}>✓</span>}
+                </div>
+              </th>
+              {model.columns.map((col,ci)=>(
+                <th key={col.id} style={{padding:'9px 10px',textAlign:'right',color:'#333',fontWeight:'bold',borderBottom:`2px solid ${brand.color}`,whiteSpace:'nowrap',minWidth:85}}>
+                  {editor
+                    ?<div style={{display:'flex',alignItems:'center',gap:3}}>
+                       <div style={{display:'flex',flexDirection:'column',gap:1,flexShrink:0}}>
+                         <button onClick={()=>onMoveCol(col.id,-1)} disabled={ci===0} style={{background:'none',border:'none',cursor:ci===0?'default':'pointer',color:ci===0?'#ccc':'#666',fontSize:10,padding:0,lineHeight:1}}>◀</button>
+                         <button onClick={()=>onMoveCol(col.id,1)} disabled={ci===model.columns.length-1} style={{background:'none',border:'none',cursor:ci===model.columns.length-1?'default':'pointer',color:ci===model.columns.length-1?'#ccc':'#666',fontSize:10,padding:0,lineHeight:1}}>▶</button>
                        </div>
-                      :col.name}
-                  </th>
-                ))}
-                {admin&&<th style={{width:30}}/>}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p,i)=>{
-                const hi=rowHi(p);let ref=null;
-                if(hi&&!firstHiSet){firstHiSet=true;ref=firstHiRef;}
-                return(
-                  <tr key={p.id} ref={ref} style={{background:hi?'#fff9c4':selectedRows.has(p.id)?'#e8f5e9':i%2?'#fafafa':'#fff',transition:'background .15s',cursor:'pointer'}}
-                    onClick={()=>toggleRow(p.id)}
-                    onMouseEnter={e=>{if(!hi&&!selectedRows.has(p.id))e.currentTarget.style.background=brand.light;}}
-                    onMouseLeave={e=>{if(!hi&&!selectedRows.has(p.id))e.currentTarget.style.background=i%2?'#fafafa':'#fff';}}>
-                    <td style={{padding:'7px 6px',textAlign:'center'}} onClick={e=>e.stopPropagation()}>
-                      <div onClick={()=>toggleRow(p.id)}
-                        style={{width:18,height:18,borderRadius:4,border:`2px solid ${selectedRows.has(p.id)?'#25D366':'#ccc'}`,background:selectedRows.has(p.id)?'#25D366':'#fff',cursor:'pointer',margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                        {selectedRows.has(p.id)&&<span style={{color:'#fff',fontSize:11,fontWeight:'bold'}}>✓</span>}
-                      </div>
-                    </td>                    {model.columns.map(col=>{
-                      const v=p.values[col.id]||'';
-                      return(
-                        <td key={col.id} style={{padding:'7px 10px',borderBottom:'1px solid #f0f0f0',background:cellHi(v)?'#ffeb3b55':undefined}}>
-                          {admin
-                            ?<input value={v} onChange={e=>onCell(p.id,col.id,e.target.value)}
-                               style={{border:'none',borderBottom:'1px solid #e8e8e8',width:'100%',minWidth:50,padding:'2px 4px',fontSize:13,background:'transparent',outline:'none',color:'#333'}}/>
-                            :<span>{v}</span>}
-                        </td>
-                      );
-                    })}
-                    {admin&&<td style={{padding:'7px 4px',textAlign:'center'}}>
-                      <button onClick={()=>onDelPart(p.id)} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:15}}>🗑</button>
-                    </td>}
-                  </tr>
-                );
-              })}
-              {!filtered.length&&<tr><td colSpan={model.columns.length+(admin?2:2)} style={{padding:24,textAlign:'center',color:'#ccc'}}>
-                {admin?'לחץ "+ שורה" להוספת חלק':'אין חלקים'}
-              </td></tr>}
-            </tbody>
-          </table>
-        </div>
+                       <input value={col.name} onChange={e=>onColName(col.id,e.target.value)}
+                         style={{border:'1px dashed #ccc',borderRadius:3,padding:'2px 5px',fontSize:12,fontWeight:'bold',width:'100%',minWidth:50,background:'transparent',color:'#333'}}/>
+                       {admin&&model.columns.length>1&&<button onClick={()=>onDelCol(col.id)} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:16,padding:0,lineHeight:1,flexShrink:0}}>×</button>}
+                     </div>
+                    :col.name}
+                </th>
+              ))}
+              {admin&&<th style={{width:30}}/>}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((p,i)=>{
+              const hi=rowHi(p);const isSel=selRows.has(p.id);
+              let ref=null;if(hi&&!firstHiSet){firstHiSet=true;ref=firstHiRef;}
+              return(<tr key={p.id} ref={ref}
+                style={{background:isSel?'var(--sel)':hi?'var(--hi)':i%2?'var(--row2)':'var(--row1)',transition:'background .15s',cursor:'pointer'}}
+                onClick={()=>toggleRow(p.id)}
+                onMouseEnter={e=>{if(!isSel&&!hi)e.currentTarget.style.background=brand.light+'88';}}
+                onMouseLeave={e=>{if(!isSel&&!hi)e.currentTarget.style.background=i%2?'var(--row2)':'var(--row1)';}}>
+                <td style={{padding:'7px 6px',textAlign:'center'}} onClick={e=>e.stopPropagation()}>
+                  <div onClick={()=>toggleRow(p.id)} style={{width:18,height:18,borderRadius:4,border:`2px solid ${isSel?'#25D366':'var(--border)'}`,background:isSel?'#25D366':'transparent',cursor:'pointer',margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    {isSel&&<span style={{color:'#fff',fontSize:11,fontWeight:'bold'}}>✓</span>}
+                  </div>
+                </td>
+                {model.columns.map(col=>{const v=p.values[col.id]||'';return(
+                  <td key={col.id} style={{padding:'7px 10px',borderBottom:'1px solid var(--border)',background:cellHi(v)?'var(--hi)':undefined}}>
+                    {editor
+                      ?<input value={v} onChange={e=>onCell(p.id,col.id,e.target.value)} onClick={e=>e.stopPropagation()}
+                         style={{border:'none',borderBottom:'1px solid var(--border)',width:'100%',minWidth:50,padding:'2px 4px',fontSize:13,background:'transparent',outline:'none',color:'var(--inp)'}}/>
+                      :<span style={{color:'var(--text)'}}>{v}</span>}
+                  </td>
+                );})}
+                {admin&&<td style={{padding:'7px 4px',textAlign:'center'}} onClick={e=>e.stopPropagation()}>
+                  <button onClick={()=>onDelPart(p.id)} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:14}}>🗑</button>
+                </td>}
+              </tr>);
+            })}
+            {!filtered.length&&<tr><td colSpan={model.columns.length+(admin?2:1)} style={{padding:24,textAlign:'center',color:'var(--sub)'}}>
+              {editor?'לחץ "+ שורה" להוספת חלק':'אין חלקים'}
+            </td></tr>}
+          </tbody>
+        </table>
       </div>
-      {showMove&&<MoveModal data={data} currentBid={brand.id} currentCid={cat.id} onMove={onMove} onClose={()=>setShowMove(false)}/>}
-      {showCopy&&<CopyPartsModal data={data} currentMid={model.id} onCopy={onCopyPartsFrom} onClose={()=>setShowCopy(false)}/>}
     </div>
-  );
+
+    {showMove&&<MoveModal data={data} currentBid={brand.id} currentCid={cat.id} onMove={onMove} onClose={()=>setShowMove(false)}/>}
+    {showCopy&&<CopyPartsModal data={data} currentMid={model.id} onCopy={onCopyPartsFrom} onClose={()=>setShowCopy(false)}/>}
+  </div>);
 }
 
+// ══════════ MOVE MODAL ══════════
 function MoveModal({data,currentBid,currentCid,onMove,onClose}){
   const[toBid,setToBid]=useState(currentBid);const[toCid,setToCid]=useState('');
   const brand=data.brands.find(b=>b.id===toBid);
-  return(
-    <Modal onClose={onClose} title="🔀 העבר דגם">
-      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
-        {data.brands.map(b=><button key={b.id} onClick={()=>{setToBid(b.id);setToCid('');}}
-          style={{padding:'7px 14px',borderRadius:20,border:`2px solid ${toBid===b.id?b.color:'#ddd'}`,background:toBid===b.id?b.color:'#fff',color:toBid===b.id?'#fff':'#555',cursor:'pointer',fontWeight:'bold',fontSize:13}}>{b.name}</button>)}
-      </div>
-      {brand&&brand.categories.map(c=><div key={c.id} onClick={()=>setToCid(c.id)}
-        style={{padding:'10px 14px',borderRadius:8,border:`2px solid ${toCid===c.id?brand.color:'#eee'}`,marginBottom:6,cursor:'pointer',background:toCid===c.id?brand.light:'#fff',color:'#333',fontSize:13,fontWeight:toCid===c.id?'bold':'normal'}}>
-        {c.name}{toBid===currentBid&&c.id===currentCid&&<span style={{fontSize:11,color:'#aaa',marginRight:8}}>(נוכחי)</span>}
-      </div>)}
-      <div style={{display:'flex',gap:8,marginTop:12}}>
-        <button onClick={()=>{if(!toCid){alert('בחר קטגוריה');return;}if(toBid===currentBid&&toCid===currentCid){alert('זו אותה קטגוריה');return;}onMove(toBid,toCid);onClose();}} style={{flex:1,...BPr('#1565c0')}}>✓ העבר</button>
-        <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
-      </div>
-    </Modal>
-  );
+  return(<Modal onClose={onClose} title="🔀 העבר דגם">
+    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
+      {data.brands.map(b=><button key={b.id} onClick={()=>{setToBid(b.id);setToCid('');}} style={{padding:'7px 14px',borderRadius:20,border:`2px solid ${toBid===b.id?b.color:'var(--border)'}`,background:toBid===b.id?b.color:'var(--ibg)',color:toBid===b.id?'#fff':'var(--text)',cursor:'pointer',fontWeight:'bold',fontSize:13}}>{b.name}</button>)}
+    </div>
+    {brand&&brand.categories.map(c=><div key={c.id} onClick={()=>setToCid(c.id)} style={{padding:'10px 14px',borderRadius:8,border:`2px solid ${toCid===c.id?brand.color:'var(--border)'}`,marginBottom:6,cursor:'pointer',background:toCid===c.id?brand.light:' var(--ibg)',color:'var(--text)',fontSize:13,fontWeight:toCid===c.id?'bold':'normal'}}>
+      {c.name}{toBid===currentBid&&c.id===currentCid&&<span style={{fontSize:11,color:'var(--sub)',marginRight:8}}>(נוכחי)</span>}
+    </div>)}
+    <div style={{display:'flex',gap:8,marginTop:12}}>
+      <button onClick={()=>{if(!toCid){alert('בחר קטגוריה');return;}if(toBid===currentBid&&toCid===currentCid){alert('אותה קטגוריה');return;}onMove(toBid,toCid);onClose();}} style={{flex:1,...BPr('#1565c0')}}>✓ העבר</button>
+      <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
+    </div>
+  </Modal>);
 }
 
+// ══════════ COPY PARTS MODAL ══════════
 function CopyPartsModal({data,currentMid,onCopy,onClose}){
   const[picked,setPicked]=useState(null);
-  const options=[];data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{if(m.id!==currentMid&&m.parts.length>0)options.push({b,c,m});})));
-  return(
-    <Modal onClose={onClose} title="📋 העתק חלקים מדגם אחר" wide>
-      <div style={{maxHeight:'50vh',overflowY:'auto',marginBottom:12}}>
-        {!options.length&&<div style={{textAlign:'center',color:'#bbb',padding:24}}>אין דגמים עם חלקים</div>}
-        {options.map(({b,c,m})=>(
-          <div key={m.id} onClick={()=>setPicked({b,c,m})}
-            style={{padding:'10px 14px',borderRadius:8,border:`2px solid ${picked?.m.id===m.id?b.color:'#eee'}`,marginBottom:6,cursor:'pointer',background:picked?.m.id===m.id?b.light:'#fff',display:'flex',alignItems:'center',gap:10}}>
-            <span style={{background:b.color,color:'#fff',padding:'2px 8px',borderRadius:4,fontSize:11,fontWeight:'bold'}}>{b.name}</span>
-            <span style={{fontWeight:'bold',color:'#333',flex:1}}>{m.name}</span>
-            <span style={{color:'#999',fontSize:11}}>{c.name}</span>
-            <span style={{color:b.color,fontSize:11,fontWeight:'bold'}}>{m.parts.length} חלקים</span>
-          </div>
-        ))}
-      </div>
-      {picked&&<div style={{background:'#e8f5e9',borderRadius:8,padding:'10px 14px',marginBottom:12,fontSize:13,color:'#2e7d32'}}>✓ <strong>{picked.m.name}</strong> — {picked.m.parts.length} חלקים יועתקו</div>}
-      <div style={{display:'flex',gap:8}}>
-        <button onClick={()=>{if(!picked){alert('בחר דגם');return;}onCopy(picked.b.id,picked.c.id,picked.m.id);onClose();alert(`✅ ${picked.m.parts.length} חלקים הועתקו`);}} style={{flex:1,...BPr('#4caf50')}}>✓ העתק</button>
-        <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
-      </div>
-    </Modal>
-  );
+  const opts=[];data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{if(m.id!==currentMid&&m.parts.length>0)opts.push({b,c,m});})));
+  return(<Modal onClose={onClose} title="📋 העתק חלקים מדגם אחר" wide>
+    <div style={{maxHeight:'50vh',overflowY:'auto',marginBottom:12}}>
+      {!opts.length&&<div style={{textAlign:'center',color:'var(--sub)',padding:24}}>אין דגמים עם חלקים</div>}
+      {opts.map(({b,c,m})=>(
+        <div key={m.id} onClick={()=>setPicked({b,c,m})} style={{padding:'10px 14px',borderRadius:8,border:`2px solid ${picked?.m.id===m.id?b.color:'var(--border)'}`,marginBottom:6,cursor:'pointer',background:picked?.m.id===m.id?b.light:'var(--ibg)',display:'flex',alignItems:'center',gap:10}}>
+          <span style={{background:b.color,color:'#fff',padding:'2px 8px',borderRadius:4,fontSize:11,fontWeight:'bold'}}>{b.name}</span>
+          <span style={{fontWeight:'bold',color:'var(--text)',flex:1}}>{m.name}</span>
+          <span style={{color:'var(--sub)',fontSize:11}}>{c.name}</span>
+          <span style={{color:b.color,fontSize:11,fontWeight:'bold'}}>{m.parts.length} חלקים</span>
+        </div>
+      ))}
+    </div>
+    {picked&&<div style={{background:'#e8f5e9',borderRadius:8,padding:'10px 14px',marginBottom:12,fontSize:13,color:'#2e7d32'}}>✓ <strong>{picked.m.name}</strong> — {picked.m.parts.length} חלקים יועתקו</div>}
+    <div style={{display:'flex',gap:8}}>
+      <button onClick={()=>{if(!picked){alert('בחר דגם');return;}onCopy(picked.b.id,picked.c.id,picked.m.id);onClose();alert(`✅ ${picked.m.parts.length} חלקים הועתקו`);}} style={{flex:1,...BPr('#4caf50')}}>✓ העתק</button>
+      <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
+    </div>
+  </Modal>);
 }
 
+// ══════════ BULK MOVE ══════════
+function BulkMoveModal({data,onMove,onClose}){
+  const[sel,setSel]=useState(new Set());const[toBid,setToBid]=useState('');const[toCid,setToCid]=useState('');const[q,setQ]=useState('');
+  const all=[];data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>all.push({bid:b.id,cid:c.id,mid:m.id,bname:b.name,cname:c.name,mname:m.name,color:b.color}))));
+  const filtered=q.trim()?all.filter(x=>x.mname.toLowerCase().includes(q.toLowerCase())||x.bname.toLowerCase().includes(q.toLowerCase())):all;
+  const key=(bid,cid,mid)=>`${bid}${SEP}${cid}${SEP}${mid}`;
+  const toggle=k=>setSel(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
+  const tb=data.brands.find(b=>b.id===toBid);
+  return(<Modal onClose={onClose} wide title="🔀 העברה מרובה">
+    <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 חפש..." style={{flex:1,minWidth:100,...INS,padding:'7px 12px'}}/>
+      <button onClick={()=>setSel(new Set(filtered.map(x=>key(x.bid,x.cid,x.mid))))} style={sB('#607d8b')}>בחר הכל</button>
+      <button onClick={()=>setSel(new Set())} style={sB('#9e9e9e')}>נקה</button>
+    </div>
+    <div style={{maxHeight:'30vh',overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,marginBottom:14}}>
+      {!all.length&&<div style={{padding:20,textAlign:'center',color:'var(--sub)'}}>אין דגמים</div>}
+      {filtered.map(x=>{const k=key(x.bid,x.cid,x.mid);const isSel=sel.has(k);return(
+        <div key={k} onClick={()=>toggle(k)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',cursor:'pointer',borderBottom:'1px solid var(--border)',background:isSel?'var(--sel)':'var(--card)',userSelect:'none'}}>
+          <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${isSel?'#1565c0':'var(--border)'}`,background:isSel?'#1565c0':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            {isSel&&<span style={{color:'#fff',fontSize:11,fontWeight:'bold'}}>✓</span>}
+          </div>
+          <span style={{background:x.color,color:'#fff',padding:'2px 7px',borderRadius:4,fontSize:10,fontWeight:'bold',flexShrink:0}}>{x.bname}</span>
+          <span style={{fontWeight:'bold',color:'var(--text)',flex:1,fontSize:13}}>{x.mname}</span>
+          <span style={{color:'var(--sub)',fontSize:11}}>{x.cname}</span>
+        </div>
+      );})}
+    </div>
+    {sel.size>0&&<div style={{background:'var(--sel)',borderRadius:8,padding:'8px 14px',marginBottom:12,fontSize:13,color:'#2e7d32',fontWeight:'bold'}}>✓ {sel.size} דגמים נבחרו</div>}
+    <div style={{fontWeight:'bold',fontSize:13,marginBottom:8,color:'var(--text)'}}>העבר אל:</div>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
+      {data.brands.map(b=><button key={b.id} onClick={()=>{setToBid(b.id);setToCid('');}} style={{padding:'7px 14px',borderRadius:20,border:`2px solid ${toBid===b.id?b.color:'var(--border)'}`,background:toBid===b.id?b.color:'var(--ibg)',color:toBid===b.id?'#fff':'var(--text)',cursor:'pointer',fontWeight:'bold',fontSize:13}}>{b.name}</button>)}
+    </div>
+    {tb&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:14}}>
+      {tb.categories.map(c=><div key={c.id} onClick={()=>setToCid(c.id)} style={{padding:'8px 12px',borderRadius:8,border:`2px solid ${toCid===c.id?tb.color:'var(--border)'}`,cursor:'pointer',background:toCid===c.id?tb.light:'var(--ibg)',fontSize:12,color:'var(--text)',fontWeight:toCid===c.id?'bold':'normal'}}>{c.name}</div>)}
+    </div>}
+    <div style={{display:'flex',gap:8}}>
+      <button onClick={()=>{if(!sel.size){alert('בחר דגמים');return;}if(!toCid){alert('בחר יעד');return;}const sels=[...sel].map(k=>{const[bid,cid,mid]=k.split(SEP);return{bid,cid,mid};});onMove(sels,toBid,toCid);alert(`✅ ${sels.length} דגמים הועברו`);onClose();}} style={{flex:1,...BPr('#1565c0')}}>✓ העבר{sel.size>0?` (${sel.size})`:''}</button>
+      <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
+    </div>
+  </Modal>);
+}
+
+// ══════════ BULK DELETE ══════════
+function BulkDeleteModal({data,onDelete,onClose}){
+  const[sel,setSel]=useState(new Set());const[q,setQ]=useState('');
+  const all=[];
+  data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
+    all.push({bid:b.id,cid:c.id,mid:m.id,bname:b.name,cname:c.name,mname:m.name,color:b.color,parts:(m.parts||[]).length});
+  })));
+  const filtered=q.trim()?all.filter(x=>x.mname.toLowerCase().includes(q.toLowerCase())||x.bname.toLowerCase().includes(q.toLowerCase())||x.cname.toLowerCase().includes(q.toLowerCase())):all;
+  const key=(bid,cid,mid)=>`${bid}${SEP}${cid}${SEP}${mid}`;
+  const toggle=k=>setSel(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
+  return(<Modal onClose={onClose} wide title="🗑 מחיקה מרובה">
+    <div style={{background:'#ffebee',borderRadius:8,padding:'10px 14px',marginBottom:12,fontSize:12,color:'#c62828',fontWeight:'bold'}}>⚠ המחיקה לצמיתות — לא ניתנת לביטול!</div>
+    <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 חפש דגם, מותג, קטגוריה..." style={{flex:1,minWidth:100,...INS,padding:'7px 12px'}}/>
+      <button onClick={()=>setSel(new Set(filtered.map(x=>key(x.bid,x.cid,x.mid))))} style={sB('#607d8b')}>בחר הכל</button>
+      <button onClick={()=>setSel(new Set())} style={sB('#9e9e9e')}>נקה</button>
+    </div>
+    <div style={{maxHeight:'40vh',overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,marginBottom:14}}>
+      {!all.length&&<div style={{padding:30,textAlign:'center',color:'var(--sub)',fontSize:14}}>אין דגמים במערכת</div>}
+      {!filtered.length&&all.length>0&&<div style={{padding:20,textAlign:'center',color:'var(--sub)'}}>אין תוצאות לחיפוש</div>}
+      {filtered.map(x=>{const k=key(x.bid,x.cid,x.mid);const isSel=sel.has(k);return(
+        <div key={k} onClick={()=>toggle(k)} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',cursor:'pointer',borderBottom:'1px solid var(--border)',background:isSel?'#ffebee':'var(--card)',userSelect:'none'}}
+          onMouseEnter={e=>{if(!isSel)e.currentTarget.style.background='var(--row2)';}}
+          onMouseLeave={e=>{e.currentTarget.style.background=isSel?'#ffebee':'var(--card)';}}>
+          <div style={{width:20,height:20,borderRadius:4,border:`2px solid ${isSel?'#c62828':'var(--border)'}`,background:isSel?'#c62828':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            {isSel&&<span style={{color:'#fff',fontSize:13,fontWeight:'bold'}}>✓</span>}
+          </div>
+          <span style={{background:x.color,color:'#fff',padding:'2px 7px',borderRadius:4,fontSize:10,fontWeight:'bold',flexShrink:0}}>{x.bname}</span>
+          <span style={{fontWeight:'bold',color:'var(--text)',flex:1,fontSize:13}}>{x.mname}</span>
+          <span style={{color:'var(--sub)',fontSize:11}}>{x.cname}</span>
+          <span style={{color:'#e53935',fontSize:11,fontWeight:'bold',flexShrink:0}}>{x.parts} חלקים</span>
+        </div>
+      );})}
+    </div>
+    {sel.size>0&&<div style={{background:'#ffebee',borderRadius:8,padding:'8px 14px',marginBottom:12,fontSize:13,color:'#c62828',fontWeight:'bold'}}>🗑 {sel.size} דגמים יימחקו לצמיתות</div>}
+    <div style={{display:'flex',gap:8}}>
+      <button onClick={()=>{if(!sel.size){alert('לא נבחרו דגמים');return;}const sels=[...sel].map(k=>{const[bid,cid,mid]=k.split(SEP);return{bid,cid,mid};});onDelete(sels);onClose();}} style={{flex:1,...BPr(sel.size?'#c62828':'#aaa')}}>🗑 מחק{sel.size>0?` (${sel.size})`:''}</button>
+      <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
+    </div>
+  </Modal>);
+}
+
+// ══════════ EXCEL IMPORT ══════════
+function XlsImportModal({data,onImport,onClose}){
+  const[rows,setRows]=useState([]);const[fn,setFn]=useState('');
+  const[toBid,setToBid]=useState(data.brands[0]?.id||'');const[toCid,setToCid]=useState(data.brands[0]?.categories[0]?.id||'');
+  const[cm,setCm]=useState({model:0,nameHe:1,tadPn:2,nameEn:3,mfgPn:4});
+  const[step,setStep]=useState(1);const[groups,setGroups]=useState([]);const[excl,setExcl]=useState(new Set());
+  const tb=data.brands.find(b=>b.id===toBid);
+  const parseFile=e=>{const f=e.target.files[0];if(!f)return;setFn(f.name);const r=new FileReader();r.onload=ev=>{const wb=XLSX.read(ev.target.result,{type:'binary'});const ws=wb.Sheets[wb.SheetNames[0]];const all=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});const fc=String(all[0]?.[0]||'').toLowerCase();const dr=(fc.includes('דגם')||fc.includes('model'))?all.slice(1):all;setRows(dr.filter(r=>r.some(c=>String(c).trim())));setStep(2);};r.readAsBinaryString(f);e.target.value='';};
+  const buildPreview=()=>{const g={};rows.forEach(r=>{const mn=String(r[cm.model]||'').trim();if(!mn)return;g[mn]=(g[mn]||0)+1;});setGroups(Object.entries(g));setExcl(new Set());setStep(3);};
+  const colLbl=i=>{const s=rows.slice(0,3).map(r=>String(r[i]||'').trim()).filter(Boolean).join(', ');return`עמודה ${i+1}${s?' ('+s.slice(0,25)+')':''}`;};
+  const maxC=rows[0]?rows[0].length:6;
+  const included=groups.filter(([n])=>!excl.has(n));
+  return(<Modal onClose={onClose} wide title="📥 ייבוא מ-Excel">
+    <div style={{display:'flex',gap:4,marginBottom:20}}>
+      {['1. העלאה','2. מיפוי','3. אישור'].map((s,i)=>(
+        <div key={i} style={{flex:1,textAlign:'center',padding:'6px 0',borderRadius:6,fontSize:12,fontWeight:'bold',background:step===i+1?'#1565c0':step>i+1?'#4caf50':'var(--row2)',color:step>=i+1?'#fff':'var(--sub)'}}>{s}</div>
+      ))}
+    </div>
+    {step===1&&<label style={{display:'block',border:'2px dashed #1565c0',borderRadius:12,padding:'32px 20px',textAlign:'center',cursor:'pointer',background:'var(--row2)'}}>
+      <div style={{fontSize:40,marginBottom:8}}>📊</div>
+      <div style={{fontWeight:'bold',color:'#1565c0',fontSize:15,marginBottom:4}}>לחץ לבחירת קובץ Excel</div>
+      <div style={{color:'var(--sub)',fontSize:12}}>XLSX, XLS, CSV</div>
+      <input type="file" accept=".xlsx,.xls,.csv" onChange={parseFile} style={{display:'none'}}/>
+    </label>}
+    {step===2&&<div>
+      <div style={{background:'#e8f5e9',borderRadius:8,padding:10,marginBottom:14,fontSize:12,color:'#2e7d32'}}>✓ {fn} — {rows.length} שורות</div>
+      {[['model','שם הדגם (מפתח)'],['nameHe','שם בעברית'],['tadPn','מק"ט תדיראן'],['nameEn','שם באנגלית'],['mfgPn','מק"ט יצרן']].map(([k,lbl])=>(
+        <div key={k} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+          <span style={{width:130,fontSize:12,color:'var(--sub)',flexShrink:0}}>{lbl}:</span>
+          <select value={cm[k]} onChange={e=>setCm(p=>({...p,[k]:Number(e.target.value)}))} style={{flex:1,border:'1px solid var(--border)',borderRadius:6,padding:'6px 10px',fontSize:12,color:'var(--inp)',background:'var(--ibg)'}}>
+            {Array.from({length:maxC},(_,i)=>i).map(i=><option key={i} value={i}>{colLbl(i)}</option>)}
+          </select>
+        </div>
+      ))}
+      <div style={{fontWeight:'bold',fontSize:13,marginTop:14,marginBottom:8,color:'var(--text)'}}>ייבא אל:</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
+        {data.brands.map(b=><button key={b.id} onClick={()=>{setToBid(b.id);setToCid(b.categories[0]?.id||'');}} style={{padding:'7px 14px',borderRadius:20,border:`2px solid ${toBid===b.id?b.color:'var(--border)'}`,background:toBid===b.id?b.color:'var(--ibg)',color:toBid===b.id?'#fff':'var(--text)',cursor:'pointer',fontWeight:'bold',fontSize:13}}>{b.name}</button>)}
+      </div>
+      {tb&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:14}}>
+        {tb.categories.map(c=><div key={c.id} onClick={()=>setToCid(c.id)} style={{padding:'8px 12px',borderRadius:8,border:`2px solid ${toCid===c.id?tb.color:'var(--border)'}`,cursor:'pointer',background:toCid===c.id?tb.light:'var(--ibg)',fontSize:12,color:'var(--text)',fontWeight:toCid===c.id?'bold':'normal'}}>{c.name}</div>)}
+      </div>}
+      <div style={{display:'flex',gap:8}}>
+        <button onClick={buildPreview} disabled={!toCid} style={{flex:1,...BPr(toCid?'#1565c0':'#aaa')}}>הבא ▶</button>
+        <button onClick={()=>setStep(1)} style={{...BST,padding:'10px 16px',borderRadius:8}}>חזור</button>
+      </div>
+    </div>}
+    {step===3&&<div>
+      <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:8}}>
+        <div style={{fontWeight:'bold',fontSize:13,color:'var(--text)'}}>בחר דגמים ({groups.length}):</div>
+        <button onClick={()=>setExcl(new Set())} style={{...sB('#4caf50'),marginRight:'auto'}}>בחר הכל</button>
+        <button onClick={()=>setExcl(new Set(groups.map(([n])=>n)))} style={sB('#9e9e9e')}>בטל הכל</button>
+      </div>
+      <div style={{maxHeight:'36vh',overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,marginBottom:12}}>
+        {groups.map(([name,count])=>{const isEx=excl.has(name);const exists=tb?.categories.find(c=>c.id===toCid)?.models.some(m=>m.name===name);return(
+          <div key={name} onClick={()=>setExcl(p=>{const n=new Set(p);isEx?n.delete(name):n.add(name);return n;})}
+            style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid var(--border)',background:isEx?'var(--row2)':'var(--card)',opacity:isEx?.45:1}}>
+            <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${!isEx?'#1565c0':'var(--border)'}`,background:!isEx?'#1565c0':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              {!isEx&&<span style={{color:'#fff',fontSize:11,fontWeight:'bold'}}>✓</span>}
+            </div>
+            <span style={{flex:1,fontWeight:'bold',color:'var(--text)',fontSize:13}}>{name}</span>
+            <span style={{color:'var(--sub)',fontSize:11}}>{count} חלקים</span>
+            {exists?<span style={{background:'#fff3e0',color:'#e65100',padding:'1px 6px',borderRadius:4,fontSize:10}}>יתווסף</span>:<span style={{background:'#e8f5e9',color:'#2e7d32',padding:'1px 6px',borderRadius:4,fontSize:10}}>חדש</span>}
+          </div>
+        );})}
+      </div>
+      <div style={{background:'#f3e5f5',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:13,color:'#6a1b9a'}}>
+        יוייבאו: <strong>{included.length} דגמים</strong> עם <strong>{included.reduce((s,[,c])=>s+c,0).toLocaleString()} חלקים</strong>
+        {' '}→ <strong>{tb?.name}</strong> / <strong>{tb?.categories.find(c=>c.id===toCid)?.name}</strong>
+      </div>
+      <div style={{display:'flex',gap:8}}>
+        <button onClick={()=>{const res=onImport(rows,cm,toBid,toCid,excl);alert(`✅ ${res.models} דגמים, ${res.parts.toLocaleString()} חלקים`);onClose();}} disabled={!included.length} style={{flex:1,...BPr(included.length?'#4caf50':'#aaa')}}>✅ ייבא</button>
+        <button onClick={()=>setStep(2)} style={{...BST,padding:'10px 16px',borderRadius:8}}>חזור</button>
+      </div>
+    </div>}
+  </Modal>);
+}
+
+// ══════════ BRAND MGR ══════════
 function BrandMgr({data,onClose,onSave}){
   const[brands,setBrands]=useState(JSON.parse(JSON.stringify(data.brands)));
   const add=()=>setBrands(b=>[...b,{id:gid(),name:'מותג חדש',color:'#607d8b',light:'#eceff1',categories:DCATS()}]);
   const upd=(id,k,v)=>setBrands(b=>b.map(x=>x.id!==id?x:{...x,[k]:v}));
-  const del=id=>{if(confirm('למחוק מותג זה?'))setBrands(b=>b.filter(x=>x.id!==id));};
-  return(
-    <Modal onClose={onClose} wide title="⚙ ניהול מותגים">
-      <div style={{maxHeight:'50vh',overflowY:'auto',marginBottom:12}}>
-        {brands.map(b=>(
-          <div key={b.id} style={{border:'1px solid #e0e0e0',borderRadius:10,padding:12,marginBottom:10,borderRight:`5px solid ${b.color}`}}>
-            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-              <input value={b.name} onChange={e=>upd(b.id,'name',e.target.value)}
-                style={{border:'1px solid #ddd',borderRadius:6,padding:'6px 10px',fontSize:14,fontWeight:'bold',flex:'1 1 100px',color:'#333'}}/>
-              <div style={{display:'flex',alignItems:'center',gap:6}}>
-                <label style={{fontSize:12,color:'#777'}}>צבע:</label>
-                <input type="color" value={b.color} onChange={e=>{const c=e.target.value;upd(b.id,'color',c);upd(b.id,'light',c+'22');}} style={{border:'none',borderRadius:4,height:34,width:44,cursor:'pointer'}}/>
-              </div>
-              <button onClick={()=>del(b.id)} style={{background:'none',border:'1px solid #e53935',color:'#e53935',borderRadius:6,padding:'6px 12px',cursor:'pointer',fontSize:12}}>מחק</button>
+  const del=id=>{if(confirm('למחוק?'))setBrands(b=>b.filter(x=>x.id!==id));};
+  return(<Modal onClose={onClose} wide title="⚙ ניהול מותגים">
+    <div style={{maxHeight:'50vh',overflowY:'auto',marginBottom:12}}>
+      {brands.map(b=>(
+        <div key={b.id} style={{border:'1px solid var(--border)',borderRadius:10,padding:12,marginBottom:10,borderRight:`5px solid ${b.color}`}}>
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+            <input value={b.name} onChange={e=>upd(b.id,'name',e.target.value)} style={{border:'1px solid var(--border)',borderRadius:6,padding:'6px 10px',fontSize:14,fontWeight:'bold',flex:'1 1 100px',color:'var(--inp)',background:'var(--ibg)'}}/>
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <label style={{fontSize:12,color:'var(--sub)'}}>צבע:</label>
+              <input type="color" value={b.color} onChange={e=>{const c=e.target.value;upd(b.id,'color',c);upd(b.id,'light',c+'22');}} style={{border:'none',borderRadius:4,height:34,width:44,cursor:'pointer'}}/>
             </div>
-            <div style={{fontSize:11,color:'#aaa',marginTop:6}}>{b.categories.reduce((s,c)=>s+c.models.length,0)} דגמים</div>
+            <button onClick={()=>del(b.id)} style={{background:'none',border:'1px solid #e53935',color:'#e53935',borderRadius:6,padding:'6px 12px',cursor:'pointer',fontSize:12}}>מחק</button>
           </div>
-        ))}
-      </div>
-      <button onClick={add} style={{width:'100%',padding:10,background:'#607d8b',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontWeight:'bold',marginBottom:12}}>+ הוסף מותג</button>
-      <div style={{display:'flex',gap:8}}>
-        <button onClick={()=>onSave(brands)} style={{flex:1,...BPr('#1565c0')}}>✓ שמור</button>
-        <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
-      </div>
-    </Modal>
-  );
-}
-
-function ChangePwd({current,onSave,onClose}){
-  const[cur,setCur]=useState('');const[nw,setNw]=useState('');const[cf,setCf]=useState('');const[err,setErr]=useState('');
-  const submit=()=>{
-    if(cur!==current){setErr('הסיסמה הנוכחית שגויה');return;}
-    if(nw.length<4){setErr('לפחות 4 תווים');return;}
-    if(nw!==cf){setErr('הסיסמאות אינן תואמות');return;}
-    onSave(nw);
-  };
-  return(
-    <Modal onClose={onClose} title="🔑 שינוי סיסמת מנהל">
-      {[['סיסמה נוכחית',cur,setCur],['סיסמה חדשה',nw,setNw],['אימות',cf,setCf]].map(([l,v,s])=>(
-        <div key={l} style={{marginBottom:10}}>
-          <div style={{fontSize:12,color:'#777',marginBottom:4}}>{l}</div>
-          <input type="password" value={v} onChange={e=>s(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} style={INS}/>
+          <div style={{fontSize:11,color:'var(--sub)',marginTop:6}}>{b.categories.reduce((s,c)=>s+c.models.length,0)} דגמים</div>
         </div>
       ))}
-      {err&&<div style={{color:'red',fontSize:12,marginBottom:8}}>{err}</div>}
-      <div style={{display:'flex',gap:8,marginTop:12}}>
-        <button onClick={submit} style={{flex:1,...BPr('#1565c0')}}>שמור</button>
-        <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
+    </div>
+    <button onClick={add} style={{width:'100%',padding:10,background:'#607d8b',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontWeight:'bold',marginBottom:12}}>+ הוסף מותג</button>
+    <div style={{display:'flex',gap:8}}>
+      <button onClick={()=>onSave(brands)} style={{flex:1,...BPr('#1565c0')}}>✓ שמור</button>
+      <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
+    </div>
+  </Modal>);
+}
+
+// ══════════ CHANGE PWD ══════════
+function ChangePwd({data,onSave,onClose}){
+  const[cur,setCur]=useState('');const[an,setAn]=useState('');const[en,setEn]=useState('');const[err,setErr]=useState('');
+  const submit=()=>{
+    if(cur!==data.pass){setErr('סיסמת מנהל נוכחית שגויה');return;}
+    if(an&&an.length<4){setErr('לפחות 4 תווים');return;}
+    if(en&&en.length<4){setErr('לפחות 4 תווים');return;}
+    onSave({...data,pass:an||data.pass,editorPass:en||data.editorPass||'editor1234'});
+    alert('✅ נשמר');
+  };
+  return(<Modal onClose={onClose} title="🔑 שינוי סיסמאות">
+    {[['סיסמת מנהל נוכחית (לאימות)',cur,setCur],['סיסמת מנהל חדשה (ריק = ללא שינוי)',an,setAn],['סיסמת עורך חדשה (ריק = ללא שינוי)',en,setEn]].map(([l,v,s])=>(
+      <div key={l} style={{marginBottom:10}}>
+        <div style={{fontSize:12,color:'var(--sub)',marginBottom:4}}>{l}</div>
+        <input type="password" value={v} onChange={e=>s(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} style={INS}/>
       </div>
-    </Modal>
-  );
+    ))}
+    {err&&<div style={{color:'red',fontSize:12,marginBottom:8}}>{err}</div>}
+    <div style={{background:'var(--row2)',borderRadius:8,padding:'8px 12px',marginBottom:12,fontSize:12,color:'var(--sub)'}}>
+      סיסמת עורך נוכחית: <strong>{data.editorPass||'editor1234'}</strong>
+    </div>
+    <div style={{display:'flex',gap:8}}>
+      <button onClick={submit} style={{flex:1,...BPr('#1565c0')}}>שמור</button>
+      <button onClick={onClose} style={{flex:1,...BST}}>ביטול</button>
+    </div>
+  </Modal>);
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
