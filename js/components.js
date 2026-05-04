@@ -235,8 +235,10 @@ function SidebarBrand({brand,sel,editor,admin,favorites,onToggleFav,onNav,onAddM
   useEffect(()=>{if(sel?.bid===brand.id){setOpen(true);setOpenCats(p=>({...p,[sel.cid]:true}));}},[sel?.bid,sel?.cid]);
   useEffect(()=>{
     if(!sidebarFilter)return;
-    const hasMatch=brand.categories.some(c=>c.models.some(m=>m.name.toLowerCase().includes(sidebarFilter.toLowerCase())));
-    if(hasMatch){setOpen(true);brand.categories.forEach(c=>{if(c.models.some(m=>m.name.toLowerCase().includes(sidebarFilter.toLowerCase())))setOpenCats(p=>({...p,[c.id]:true}));});}
+    const q=sidebarFilter.toLowerCase();
+    const modelMatches=m=>m.name.toLowerCase().includes(q)||(m.synonyms||[]).some(s=>s.toLowerCase().includes(q));
+    const hasMatch=brand.categories.some(c=>c.models.some(modelMatches));
+    if(hasMatch){setOpen(true);brand.categories.forEach(c=>{if(c.models.some(modelMatches))setOpenCats(p=>({...p,[c.id]:true}));});}
   },[sidebarFilter]);
 
   const toggleCat=id=>setOpenCats(p=>({...p,[id]:!p[id]}));
@@ -254,7 +256,9 @@ function SidebarBrand({brand,sel,editor,admin,favorites,onToggleFav,onNav,onAddM
       </div>
       {open&&<>
         {brand.categories.map(c=>{
-          const visibleModels=sidebarFilter?c.models.filter(m=>m.name.toLowerCase().includes(sidebarFilter.toLowerCase())):c.models;
+          const q=sidebarFilter?sidebarFilter.toLowerCase():'';
+          const modelMatches=m=>!q||m.name.toLowerCase().includes(q)||(m.synonyms||[]).some(s=>s.toLowerCase().includes(q));
+          const visibleModels=sidebarFilter?c.models.filter(modelMatches):c.models;
           if(sidebarFilter&&!visibleModels.length)return null;
           return(
             <div key={c.id}>
@@ -311,6 +315,9 @@ function SidebarBrand({brand,sel,editor,admin,favorites,onToggleFav,onNav,onAddM
                       style={{flex:1,padding:'8px 10px 8px 26px',cursor:'pointer',fontSize:13,color:sel?.mid===m.id?brand.color:'var(--text)',fontWeight:sel?.mid===m.id?'bold':'normal',background:sel?.mid===m.id?brand.light+'88':'transparent',borderRight:sel?.mid===m.id?`3px solid ${brand.color}`:'3px solid transparent'}}>
                       {m.name}
                       {m.synonyms?.length>0&&<div style={{fontSize:10,color:'var(--sub)',marginTop:2}}>{m.synonyms.join(' | ')}</div>}
+                      {sidebarFilter&&(m.synonyms||[]).some(s=>s.toLowerCase().includes(sidebarFilter.toLowerCase()))&&!(m.name.toLowerCase().includes(sidebarFilter.toLowerCase()))&&(
+                        <div style={{fontSize:10,color:'#7b1fa2',marginTop:2,fontWeight:'bold'}}>≡ {(m.synonyms||[]).filter(s=>s.toLowerCase().includes(sidebarFilter.toLowerCase())).join(', ')}</div>
+                      )}
                     </div>
                     <button onClick={()=>onToggleFav(m.id)} style={{background:'none',border:'none',fontSize:13,cursor:'pointer',padding:'0 4px'}}>{favorites.has(m.id)?'⭐':'☆'}</button>
                     {admin&&<button onClick={()=>onDelModel(c.id,m.id)} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13,padding:'0 8px'}}>🗑</button>}
