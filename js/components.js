@@ -403,12 +403,20 @@ function NotificationsPanel({missingAlerts,reports,techRequests,alerts,data,onNa
     })));
     return Object.values(nameMap).filter(arr=>arr.length>1);
   },[data]);
-  const[tab,setTab]=useState(initialTab||'missing');
+  const[dismissed,setDismissed]=useState(()=>{
+    try{return new Set(JSON.parse(localStorage.getItem('ac_dismissed_missing')||'[]'));}catch{return new Set();}
+  });
+  const dismissAlert=key=>{setDismissed(p=>{const n=new Set(p);n.add(key);try{localStorage.setItem('ac_dismissed_missing',JSON.stringify([...n]));}catch{}return n;});};
+  const restoreAll=()=>{setDismissed(new Set());try{localStorage.removeItem('ac_dismissed_missing');}catch{}};
+
+  const activeMissing=missingAlerts.filter(a=>{const key=`${a.m.id}__${a.p.id}`;return!dismissed.has(key);});
+  const dismissedCount=missingAlerts.length-activeMissing.length;
   const unresolved=reports.filter(r=>!r.resolved);
   const unresolvedTech=techRequests.filter(r=>!r.resolved);
 
+  const[tab,setTab]=useState(initialTab||'missing');
   const tabs=[
-    ['missing',`⚠️ שדות חסרים (${missingAlerts.length})`],
+    ['missing',`⚠️ שדות חסרים (${activeMissing.length}${dismissedCount>0?` / ${missingAlerts.length}` :''})`],
     ['reports',`🔴 שגיאות (${unresolved.length})`],
     ['tech',`💬 בקשות (${unresolvedTech.length})`],
     ['activity',`📋 פעולות (${alerts.length})`],
@@ -419,7 +427,7 @@ function NotificationsPanel({missingAlerts,reports,techRequests,alerts,data,onNa
     if(tab==='reports'){if(!confirm('לסמן כל הדיווחים כטופלו?'))return;await onResolveAllReports();alert('✅ כל הדיווחים סומנו כטופלו');}
     else if(tab==='tech'){if(!confirm('לסמן כל הבקשות כטופלו?'))return;await onResolveAllTech();alert('✅ כל הבקשות סומנו כטופלו');}
     else if(tab==='activity'){if(!confirm('למחוק את כל הפעולות?'))return;await onClearAlerts();alert('✅ הפעולות נמחקו');}
-    else if(tab==='missing'){alert('שדות חסרים מתעדכנים אוטומטית בעת עדכון המידע');}
+    else if(tab==='missing'){if(!confirm('לסמן את כל שדות חסרים כטופלו?'))return;missingAlerts.forEach(a=>dismissAlert(`${a.m.id}__${a.p.id}`));alert('✅ כל השדות סומנו כטופלו');}
   };
 
   return(
@@ -432,17 +440,31 @@ function NotificationsPanel({missingAlerts,reports,techRequests,alerts,data,onNa
       <div style={{display:'flex',justifyContent:'flex-end',marginBottom:12}}>
         <button onClick={resetCurrentTab} style={sB('#e53935')}>🔄 איפוס טאב זה</button>
       </div>
+
       {tab==='missing'&&(
         <div style={{maxHeight:'55vh',overflowY:'auto'}}>
-          {!missingAlerts.length&&<div style={{textAlign:'center',color:'#4caf50',padding:30,fontSize:14}}>✅ אין שדות חסרים!</div>}
-          {missingAlerts.slice(0,50).map((a,i)=>(
-            <div key={i} onClick={()=>onNav(a.b.id,a.c.id,a.m.id)} style={{display:'flex',gap:10,padding:'10px 12px',borderRadius:8,border:'1px solid #ff980022',background:'#fff8e1',marginBottom:6,cursor:'pointer',alignItems:'center'}}
-              onMouseEnter={e=>e.currentTarget.style.background='#fff3cd'} onMouseLeave={e=>e.currentTarget.style.background='#fff8e1'}>
-              <span style={{background:a.b.color,color:'#fff',padding:'2px 7px',borderRadius:4,fontSize:10,fontWeight:'bold',flexShrink:0}}>{a.b.name}</span>
-              <div style={{flex:1}}><div style={{fontWeight:'bold',fontSize:12,color:'#333'}}>{a.m.name}</div><div style={{fontSize:11,color:'#795548'}}>חלק: {a.p.values.nameHe||a.p.id} · חסר: {a.field}</div></div>
-              <span style={{color:'#e65100',fontSize:11,fontWeight:'bold'}}>→</span>
+          {dismissedCount>0&&(
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,padding:'8px 12px',background:'#e8f5e9',borderRadius:8,border:'1px solid #c8e6c9'}}>
+              <span style={{fontSize:12,color:'#2e7d32',flex:1}}>✅ {dismissedCount} שדות סומנו כטופלו ומוסתרים</span>
+              <button onClick={restoreAll} style={sB('#78909c')}>הצג הכל</button>
             </div>
-          ))}
+          )}
+          {!activeMissing.length&&<div style={{textAlign:'center',color:'#4caf50',padding:30,fontSize:14}}>✅ {missingAlerts.length===0?'אין שדות חסרים!':'כל השדות החסרים טופלו!'}</div>}
+          {activeMissing.slice(0,60).map((a,i)=>{
+            const key=`${a.m.id}__${a.p.id}`;
+            return(
+              <div key={i} style={{display:'flex',gap:8,padding:'10px 12px',borderRadius:8,border:'1px solid #ff980022',background:'#fff8e1',marginBottom:6,alignItems:'center'}}>
+                <span style={{background:a.b.color,color:'#fff',padding:'2px 7px',borderRadius:4,fontSize:10,fontWeight:'bold',flexShrink:0}}>{a.b.name}</span>
+                <div style={{flex:1,cursor:'pointer'}} onClick={()=>onNav(a.b.id,a.c.id,a.m.id)}>
+                  <div style={{fontWeight:'bold',fontSize:12,color:'#333'}}>{a.m.name}</div>
+                  <div style={{fontSize:11,color:'#795548'}}>חלק: {a.p.values.nameHe||a.p.id} · חסר: {a.field}</div>
+                </div>
+                <button onClick={()=>onNav(a.b.id,a.c.id,a.m.id)} style={sB('#1565c0')}>→ פתח</button>
+                <button onClick={()=>dismissAlert(key)} style={sB('#4caf50')}>✓ טופל</button>
+              </div>
+            );
+          })}
+          {activeMissing.length>60&&<div style={{textAlign:'center',color:'var(--sub)',fontSize:12,padding:8}}>ועוד {activeMissing.length-60} פריטים...</div>}
         </div>
       )}
       {tab==='reports'&&(
