@@ -96,8 +96,14 @@ function App() {
     if (!data) return [];
     const res = [];
     data.brands.forEach(b => b.categories.forEach(c => c.models.forEach(m => {
+      // Find the tadPn column in this model (might have custom ID)
+      const tadCol = m.columns.find(col => col.id==='tadPn' || col.name.includes('תדיראן') || col.name.toLowerCase().includes('tadpn'));
+      if (!tadCol) return; // no tadPn column at all - skip
       m.parts.forEach(p => {
-        if ((p.values.nameHe||'').trim() && !(p.values.tadPn||'').trim())
+        const nameHe = (p.values.nameHe||'').trim();
+        const tadPn  = (p.values[tadCol.id]||'').trim();
+        // Only alert if part has a Hebrew name AND the tadPn field is truly empty
+        if (nameHe && !tadPn)
           res.push({b,c,m,p,field:'מק"ט תדיראן'});
       });
     })));
@@ -264,6 +270,7 @@ function App() {
 
   const expXLS = () => {
     if(!data)return;
+    try{
     const wb=XLSX.utils.book_new();
     const allRows=[['מותג','קטגוריה','שם דגם','שם חלק בעברית','שם חלק באנגלית','מק"ט יצרן','מק"ט תדיראן','סטטוס']];
     data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
@@ -273,13 +280,16 @@ function App() {
       const rows=m.parts.map(p=>[p.values.ref||'',p.values.nameHe||'',p.values.nameEn||'',p.values.mfgPn||'',p.values.tadPn||'',...extraCols.map(c=>p.values[c.id]||''),p.discontinued?'הופסק לייצור':'']);
       const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
       ws['!cols']=hdr.map((_,i)=>({wch:i===1||i===2?30:16}));
-      XLSX.utils.book_append_sheet(wb,ws,`${b.name}-${m.name}`.slice(0,31));
+      // Clean sheet name: remove illegal Excel chars, limit to 31
+      const rawName=`${b.name}-${m.name}`.replace(/[\\/:*?\[\]]/g,'').slice(0,31);
+      try{XLSX.utils.book_append_sheet(wb,ws,rawName);}catch{XLSX.utils.book_append_sheet(wb,ws,rawName.slice(0,20)+gid().slice(0,5));}
       m.parts.forEach(p=>allRows.push([b.name,c.name,m.name,p.values.nameHe||'',p.values.nameEn||'',p.values.mfgPn||'',p.values.tadPn||'',p.discontinued?'הופסק':'']));
     })));
     const wsAll=XLSX.utils.aoa_to_sheet(allRows);
     wsAll['!cols']=[{wch:12},{wch:16},{wch:20},{wch:30},{wch:30},{wch:16},{wch:16},{wch:14}];
     XLSX.utils.book_append_sheet(wb,wsAll,'כל הנתונים');
     XLSX.writeFile(wb,`ac-catalog-${new Date().toISOString().slice(0,10)}.xlsx`);
+    }catch(err){alert('שגיאה בייצוא Excel: '+err.message);console.error(err);}
   };
 
   const expJSON = () => {
