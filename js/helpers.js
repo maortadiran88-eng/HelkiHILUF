@@ -95,7 +95,7 @@ function TipsBar({tips,canEdit,onEdit}){
   },[tips]);
   if(!tips||!tips.length)return null;
   return(
-    <div style={{position:'fixed',bottom:0,right:0,left:0,zIndex:150,background:'#fff8e1',borderTop:'1px solid #ffe082',padding:'5px 14px',fontSize:12,color:'#795548',display:'flex',alignItems:'center',gap:8,minHeight:28,boxShadow:'0 -2px 8px rgba(0,0,0,.08)'}}>
+    <div style={{background:'#fff8e1',borderBottom:'1px solid #ffe082',padding:'5px 14px',fontSize:12,color:'#795548',display:'flex',alignItems:'center',gap:8,minHeight:28}}>
       <span style={{flexShrink:0}}>💡</span>
       <span style={{transition:'opacity .4s',opacity:visible?1:0,flex:1}}>{tips[idx]||''}</span>
       {canEdit&&<button onClick={onEdit} style={{background:'none',border:'none',cursor:'pointer',fontSize:13,color:'#b8860b',flexShrink:0,padding:'0 4px'}} title="ערוך טיפים">✏️</button>}

@@ -271,25 +271,58 @@ function App() {
   const expXLS = () => {
     if(!data)return;
     try{
-    const wb=XLSX.utils.book_new();
-    const allRows=[['מותג','קטגוריה','שם דגם','שם חלק בעברית','שם חלק באנגלית','מק"ט יצרן','מק"ט תדיראן','סטטוס']];
-    data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
-      if(!m.parts.length)return;
-      const extraCols=m.columns.filter(cl=>!['ref','nameHe','nameEn','mfgPn','tadPn'].includes(cl.id));
-      const hdr=['מספר זיהוי','שם בעברית','Part Name','מק"ט יצרן','מק"ט תדיראן',...extraCols.map(c=>c.name),'סטטוס'];
-      const rows=m.parts.map(p=>[p.values.ref||'',p.values.nameHe||'',p.values.nameEn||'',p.values.mfgPn||'',p.values.tadPn||'',...extraCols.map(c=>p.values[c.id]||''),p.discontinued?'הופסק לייצור':'']);
-      const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
-      ws['!cols']=hdr.map((_,i)=>({wch:i===1||i===2?30:16}));
-      // Clean sheet name: remove illegal Excel chars, limit to 31
-      const rawName=`${b.name}-${m.name}`.replace(/[\\/:*?\[\]]/g,'').slice(0,31);
-      try{XLSX.utils.book_append_sheet(wb,ws,rawName);}catch{XLSX.utils.book_append_sheet(wb,ws,rawName.slice(0,20)+gid().slice(0,5));}
-      m.parts.forEach(p=>allRows.push([b.name,c.name,m.name,p.values.nameHe||'',p.values.nameEn||'',p.values.mfgPn||'',p.values.tadPn||'',p.discontinued?'הופסק':'']));
-    })));
-    const wsAll=XLSX.utils.aoa_to_sheet(allRows);
-    wsAll['!cols']=[{wch:12},{wch:16},{wch:20},{wch:30},{wch:30},{wch:16},{wch:16},{wch:14}];
-    XLSX.utils.book_append_sheet(wb,wsAll,'כל הנתונים');
-    XLSX.writeFile(wb,`ac-catalog-${new Date().toISOString().slice(0,10)}.xlsx`);
-    }catch(err){alert('שגיאה בייצוא Excel: '+err.message);console.error(err);}
+      const wb = XLSX.utils.book_new();
+      const allRows = [['מותג','קטגוריה','שם דגם','שם חלק בעברית','Part Name','מק"ט יצרן','מק"ט תדיראן','סטטוס']];
+
+      // One sheet per BRAND
+      data.brands.forEach(b => {
+        const brandRows = [['קטגוריה','שם דגם','שם חלק בעברית','Part Name','מק"ט יצרן','מק"ט תדיראן','סטטוס']];
+        let brandHasParts = false;
+
+        b.categories.forEach(cat => {
+          cat.models.forEach(m => {
+            if(!m.parts.length) return;
+            brandHasParts = true;
+
+            // Separator row — model name
+            brandRows.push([`--- ${m.name} ---`,'','','','','','']);
+
+            m.parts.forEach(p => {
+              const row = [
+                cat.name,
+                m.name,
+                p.values.nameHe||'',
+                p.values.nameEn||'',
+                p.values.mfgPn ||'',
+                p.values.tadPn ||'',
+                p.discontinued ? 'הופסק לייצור' : ''
+              ];
+              brandRows.push(row);
+              // accumulate for "כל הנתונים"
+              allRows.push([b.name, cat.name, m.name, p.values.nameHe||'', p.values.nameEn||'', p.values.mfgPn||'', p.values.tadPn||'', p.discontinued?'הופסק':'']);
+            });
+          });
+        });
+
+        if(!brandHasParts) return; // skip brand with no parts
+
+        const ws = XLSX.utils.aoa_to_sheet(brandRows);
+        // Column widths
+        ws['!cols'] = [{wch:16},{wch:20},{wch:30},{wch:30},{wch:16},{wch:16},{wch:14}];
+
+        // Style header row bold (basic)
+        const sheetName = b.name.replace(/[\/:*?\[\]]/g,'').slice(0,31);
+        try { XLSX.utils.book_append_sheet(wb, ws, sheetName); }
+        catch  { XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0,25)+gid().slice(0,5)); }
+      });
+
+      // Final sheet — all data
+      const wsAll = XLSX.utils.aoa_to_sheet(allRows);
+      wsAll['!cols'] = [{wch:12},{wch:16},{wch:20},{wch:30},{wch:30},{wch:16},{wch:16},{wch:14}];
+      XLSX.utils.book_append_sheet(wb, wsAll, 'כל הנתונים');
+
+      XLSX.writeFile(wb, `ac-catalog-${new Date().toISOString().slice(0,10)}.xlsx`);
+    } catch(err) { alert('שגיאה בייצוא Excel: '+err.message); console.error(err); }
   };
 
   const expJSON = () => {
@@ -404,8 +437,11 @@ function App() {
         </div>
       </header>
 
-      {/* News Ticker — below header, above content */}
+      {/* News Ticker — below header */}
       <NewsTicker items={newsItems}/>
+
+      {/* Tips — below news ticker */}
+      <TipsBar tips={tips} canEdit={editor} onEdit={()=>setShowTipsEdit(true)}/>
 
             {/* SEARCH DROPDOWN */}
       {query&&(
@@ -556,8 +592,6 @@ function App() {
         </main>
       </div>
 
-      {/* Tips bar bottom */}
-      <TipsBar tips={tips} canEdit={editor} onEdit={()=>setShowTipsEdit(true)}/>
 
       {/* IMAGE MODAL */}
       {imgModal.imgs.length>0&&(
