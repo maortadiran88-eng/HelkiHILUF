@@ -9,9 +9,13 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script>
-  Babel.setPresetOptions('react', {
-    runtime: 'classic'
+<script>
+  // הגדרת חוקי קומפילציה קלאסיים שמתאימים לעבודה ישירה בדפדפן ללא מודולים
+  Babel.registerPreset('classic-react', {
+    presets: [
+      [Babel.availablePresets['env'], {}],
+      [Babel.availablePresets['react'], { runtime: 'classic' }]
+    ]
   });
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -123,12 +127,12 @@ button:active{transform:scale(.97)}
   window._db = firebase.firestore();
 </script>
 
-<script type="text/babel" data-type="module" src="js/constants.js"></script>
-<script type="text/babel" data-type="module" src="js/firebase.js"></script>
-<script type="text/babel" data-type="module" src="js/helpers.js"></script>
-<script type="text/babel" data-type="module" src="js/components.js"></script>
-<script type="text/babel" data-type="module" src="js/modals.js"></script>
-<script type="text/babel" data-type="module" src="js/ModelView.js"></script>
-<script type="text/babel" data-type="module" src="js/App.js"></script>
+<script type="text/babel" data-presets="classic-react" src="js/constants.js"></script>
+<script type="text/babel" data-presets="classic-react" src="js/firebase.js"></script>
+<script type="text/babel" data-presets="classic-react" src="js/helpers.js"></script>
+<script type="text/babel" data-presets="classic-react" src="js/components.js"></script>
+<script type="text/babel" data-presets="classic-react" src="js/modals.js"></script>
+<script type="text/babel" data-presets="classic-react" src="js/ModelView.js"></script>
+<script type="text/babel" data-presets="classic-react" src="js/App.js"></script>
 </body>
 </html>
