@@ -624,7 +624,7 @@ function App() {
         onClearAlerts={async()=>{await fbClearAlerts();fbGetAlerts().then(setAlerts);}}
         onClose={()=>setShowNotif(false)}/>}
       {showHelp     &&<HelpModal role={loginRole} onClose={()=>setShowHelp(false)}/>}
-      {showDashboard&&<DashboardModal data={data} onClose={()=>setShowDashboard(false)}/>}}
+      {showDashboard&&<DashboardModal data={data} onClose={()=>setShowDashboard(false)}/>}
       {showVersions &&<VersionHistoryModal
         onRestore={restoredBrands=>{restoredBrands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>changedMids.current.add(m.id))));mut(d=>({...d,brands:restoredBrands}));setSel(null);}}
         onClose={()=>setShowVersions(false)}/>}
