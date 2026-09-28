@@ -1,3 +1,5 @@
+const { useState, useEffect, useMemo, useRef } = React;
+
 function App() {
   const [data,           setData]           = useState(null);
   const [loaded,         setLoaded]         = useState(false);
@@ -15,6 +17,8 @@ function App() {
   const [cart,           setCart]           = useState([]);
   const [showCart,       setShowCart]       = useState(false);
   const [showNotif,      setShowNotif]      = useState(false);
+  const [showMakatReview,setShowMakatReview]= useState(false);
+  const [makatApprovals, setMakatApprovals] = useState(()=>{try{return JSON.parse(localStorage.getItem('makat_approvals')||'{}');}catch{return{};}});
   const [notifInitTab,   setNotifInitTab]   = useState('missing');
   const [reports,        setReports]        = useState([]);
   const [techRequests,   setTechRequests]   = useState([]);
@@ -22,19 +26,22 @@ function App() {
   const [histData,       setHistData]       = useState([]);
   const [showHistory,    setShowHistory]    = useState(false);
   const [brandMgr,       setBrandMgr]       = useState(false);
+  const [menuOpen,       setMenuOpen]       = useState(false);
+  const [searchOpen,     setSearchOpen]     = useState(false);
   const [chPwd,          setChPwd]          = useState(false);
   const [showXls,        setShowXls]        = useState(false);
   const [showBulkMove,   setShowBulkMove]   = useState(false);
   const [showBulkDel,    setShowBulkDel]    = useState(false);
   const [showHelp,       setShowHelp]       = useState(false);
   const [showDashboard,  setShowDashboard]  = useState(false);
-  const [showVersions,   setShowVersions]   = useState(false);
   const [showNewsEditor, setShowNewsEditor] = useState(false);
   const [showBroadcast,  setShowBroadcast]  = useState(false);
   const [showUsersMgr,   setShowUsersMgr]   = useState(false);
   const [showTipsEdit,   setShowTipsEdit]   = useState(false);
   const [undoStack,      setUndoStack]      = useState([]); // last 5 reversible actions
   const [showUndo,       setShowUndo]       = useState(null); // {msg, fn}
+  const [compareList,    setCompareList]    = useState([]); // [{bid,cid,mid}]
+  const [showCompare,    setShowCompare]    = useState(false);
   const [broadcast,      setBroadcast]      = useState(null);
   const [newsItems,      setNewsItems]      = useState([]);
   const [favorites,      setFavorites]      = useState(() => {
@@ -116,20 +123,28 @@ function App() {
 
   const brand = sel&&data ? data.brands.find(b=>b.id===sel.bid) : null;
   const cat   = brand     ? brand.categories.find(c=>c.id===sel.cid) : null;
-  const model = cat       ? cat.models.find(m=>m.id===sel.mid) : null;
+  const model = cat       ? (cat.models.find(m=>m.id===sel.mid) || (cat.subCategories||[]).flatMap(sc=>sc.models).find(m=>m.id===sel.mid)) : null;
 
   const results = useMemo(() => {
     if (!data||!loginRole) return [];
     const q = query.trim().toLowerCase(); if (!q) return [];
+    const canSeeHidden = editor;
     const res=[]; const seen=new Set();
-    data.brands.forEach(b => b.categories.forEach(c => c.models.forEach(m => {
-      const ms  = m.synonyms?.find(s => fuzzyMatch(q,s));
-      const mh  = fuzzyMatch(q,m.name) || !!ms;
-      const ph  = m.parts.filter(p => partMatches(q,p,m.columns));
-      if ((mh||ph.length) && !seen.has(m.id)) { seen.add(m.id); res.push({b,c,m,ph,ms:ms||null}); }
-    })));
+    data.brands.forEach(b => {
+      if (!canSeeHidden && b.hidden) return;
+      b.categories.forEach(c => {
+        const allModels=[...c.models,...(c.subCategories||[]).flatMap(sc=>sc.models)];
+        allModels.forEach(m => {
+          if (!canSeeHidden && m.hidden) return;
+          const ms  = m.synonyms?.find(s => fuzzyMatch(q,s));
+          const mh  = fuzzyMatch(q,m.name) || !!ms;
+          const ph  = m.parts.filter(p => partMatches(q,p,m.columns));
+          if ((mh||ph.length) && !seen.has(m.id)) { seen.add(m.id); res.push({b,c,m,ph,ms:ms||null}); }
+        });
+      });
+    });
     return res;
-  }, [query, data, loginRole]);
+  }, [query, data, loginRole, editor]);
 
   const nav = (bid,cid,mid,hq='') => {
     if (sel) navStack.current = [...navStack.current.slice(-9), sel];
@@ -242,10 +257,14 @@ function App() {
     mutM(db2,dc,dm,m=>({...m,parts:[...m.parts,...srcM.parts.map(p=>({...p,id:gid()}))]}));
   };
 
-  const handleAddModel = (b,cid,name) => {
+  const handleAddModel = (b,cid,name,scid) => {
     const id=gid(); changedMids.current.add(id);
     const nm={id,name,synonyms:[],images:[],notes:'',columns:DCOLS(),parts:[]};
-    mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,models:[...c.models,nm]})})}));
+    mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>{
+      if(c.id!==cid)return c;
+      if(scid)return{...c,subCategories:(c.subCategories||[]).map(sc=>sc.id!==scid?sc:{...sc,models:[...sc.models,nm]})};
+      return{...c,models:[...c.models,nm]};
+    })})}));
     logAction('הוסף דגם',{model:name,brand:b.name});
     logAlert('add', `נוסף דגם חדש: ${name} (${b.name})`);
     fbAddNews(`נוסף דגם חדש: ${name} (${b.name})`).then(()=>fbGetNews().then(docs=>setNewsItems(docs.map(d=>d.text))));
@@ -272,11 +291,31 @@ function App() {
     if(!data)return;
     try{
       const wb = XLSX.utils.book_new();
-      const allRows = [['מותג','קטגוריה','שם דגם','שם חלק בעברית','Part Name','מק"ט יצרן','מק"ט תדיראן','סטטוס']];
+
+      // Build the full ordered set of column ids/names used anywhere in the catalog.
+      // Defaults first (in their standard order, incl. the identification number "ref"),
+      // then any extra custom columns editors have added, in first-seen order.
+      const defaultOrder = ['ref','nameHe','nameEn','mfgPn','tadPn'];
+      const colNameMap = {};
+      DCOLS().forEach(c=>{colNameMap[c.id]=c.name;});
+      const extraIds = [];
+      data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
+        (m.columns||[]).forEach(col=>{
+          if(!colNameMap[col.id]) colNameMap[col.id]=col.name;
+          if(!defaultOrder.includes(col.id) && !extraIds.includes(col.id)) extraIds.push(col.id);
+        });
+      })));
+      const colIds   = [...defaultOrder, ...extraIds];
+      const colNames = colIds.map(id=>colNameMap[id]||id);
+
+      const fixedHead = ['שם דגם','שמות נרדפים','הערות דגם','מספר שרטוטים/תמונות'];
+      const allHeader = ['מותג','קטגוריה', ...fixedHead, ...colNames, 'נפוץ','סטטוס'];
+      const allRows = [allHeader];
 
       // One sheet per BRAND
       data.brands.forEach(b => {
-        const brandRows = [['קטגוריה','שם דגם','שם חלק בעברית','Part Name','מק"ט יצרן','מק"ט תדיראן','סטטוס']];
+        const brandHeader = ['קטגוריה', ...fixedHead, ...colNames, 'נפוץ','סטטוס'];
+        const brandRows = [brandHeader];
         let brandHasParts = false;
 
         b.categories.forEach(cat => {
@@ -284,22 +323,12 @@ function App() {
             if(!m.parts.length) return;
             brandHasParts = true;
 
-            // Separator row — model name
-            brandRows.push([`--- ${m.name} ---`,'','','','','','']);
+            const modelInfo = [m.name, (m.synonyms||[]).join(' | '), m.notes||'', (m.images||[]).length||0];
 
             m.parts.forEach(p => {
-              const row = [
-                cat.name,
-                m.name,
-                p.values.nameHe||'',
-                p.values.nameEn||'',
-                p.values.mfgPn ||'',
-                p.values.tadPn ||'',
-                p.discontinued ? 'הופסק לייצור' : ''
-              ];
-              brandRows.push(row);
-              // accumulate for "כל הנתונים"
-              allRows.push([b.name, cat.name, m.name, p.values.nameHe||'', p.values.nameEn||'', p.values.mfgPn||'', p.values.tadPn||'', p.discontinued?'הופסק':'']);
+              const vals = colIds.map(id=>p.values[id]||'');
+              brandRows.push([cat.name, ...modelInfo, ...vals, p.pinned?'נפוץ':'', p.discontinued ? 'הופסק לייצור' : '']);
+              allRows.push([b.name, cat.name, ...modelInfo, ...vals, p.pinned?'נפוץ':'', p.discontinued?'הופסק לייצור':'']);
             });
           });
         });
@@ -307,10 +336,8 @@ function App() {
         if(!brandHasParts) return; // skip brand with no parts
 
         const ws = XLSX.utils.aoa_to_sheet(brandRows);
-        // Column widths
-        ws['!cols'] = [{wch:16},{wch:20},{wch:30},{wch:30},{wch:16},{wch:16},{wch:14}];
+        ws['!cols'] = brandHeader.map(()=>({wch:18}));
 
-        // Style header row bold (basic)
         const sheetName = b.name.replace(/[\/:*?\[\]]/g,'').slice(0,31);
         try { XLSX.utils.book_append_sheet(wb, ws, sheetName); }
         catch  { XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0,25)+gid().slice(0,5)); }
@@ -318,7 +345,7 @@ function App() {
 
       // Final sheet — all data
       const wsAll = XLSX.utils.aoa_to_sheet(allRows);
-      wsAll['!cols'] = [{wch:12},{wch:16},{wch:20},{wch:30},{wch:30},{wch:16},{wch:16},{wch:14}];
+      wsAll['!cols'] = allHeader.map(()=>({wch:18}));
       XLSX.utils.book_append_sheet(wb, wsAll, 'כל הנתונים');
 
       XLSX.writeFile(wb, `ac-catalog-${new Date().toISOString().slice(0,10)}.xlsx`);
@@ -340,16 +367,22 @@ function App() {
   };
 
   if (!loaded) return(
-    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:16,background:'#0f172a'}}>
-      <div style={{fontSize:52}}>🔧</div>
-      <div style={{fontSize:17,color:'#94a3b8'}}>טוען...</div>
-      <div style={{width:40,height:40,border:'4px solid #334155',borderTop:'4px solid #1565c0',borderRadius:'50%',animation:'spin .9s linear infinite'}}/>
+    <div className="login-bg" style={{position:'fixed',inset:0,overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',direction:'rtl'}}>
+      <div aria-hidden className="login-blob-a" style={{position:'absolute',width:280,height:280,borderRadius:'50%',filter:'blur(70px)',opacity:.5,top:-70,right:-60}}/>
+      <div aria-hidden className="login-blob-b" style={{position:'absolute',width:240,height:240,borderRadius:'50%',filter:'blur(70px)',opacity:.5,bottom:-50,left:-40}}/>
+      <div aria-hidden className="login-blob-c" style={{position:'absolute',width:200,height:200,borderRadius:'50%',filter:'blur(70px)',opacity:.45,top:'42%',left:'28%'}}/>
+      <div style={{position:'relative',zIndex:1,textAlign:'center',animation:'fadeIn .4s ease-out'}}>
+        <div style={{fontWeight:900,fontSize:24,letterSpacing:2,color:'var(--text)',marginBottom:2}}>TADI<span style={{color:'var(--primary)'}}>RAN</span></div>
+        <div style={{fontSize:10,letterSpacing:3,color:'var(--sub)',fontWeight:700,marginBottom:26}}>P A R T S &nbsp; C A T A L O G</div>
+        <div style={{width:34,height:34,margin:'0 auto',border:'3px solid var(--border2)',borderTop:'3px solid var(--cyan)',borderRadius:'50%',animation:'spin .8s linear infinite'}}/>
+        <div style={{fontSize:12.5,color:'var(--sub)',marginTop:16,fontWeight:600}}>טוען...</div>
+      </div>
     </div>
   );
 
   if (!loginRole) return <LoginScreen data={data} onLogin={(role,id,label)=>{setLoginRole(role);setLoginLabel(label||role);}}/>;
 
-  const hdrBg = brand?.color || '#37474f';
+  const hdrBg = brand?.color || 'var(--primary)';
   const tips  = data.tips&&data.tips.length ? data.tips : DEFAULT_TIPS;
   const partsDisclaimer = data.partsDisclaimer || DEFAULT_DISCLAIMER;
 
@@ -362,79 +395,97 @@ function App() {
   };
 
   return(
-    <div dir="rtl" style={{fontFamily:'Arial,sans-serif',minHeight:'100vh',background:'var(--bg)',display:'flex',flexDirection:'column',fontSize:14,color:'var(--text)'}}>
+    <div dir="rtl" style={{fontFamily:"'Rubik','Segoe UI',Arial,sans-serif",position:'relative',minHeight:'100vh',background:'var(--bg)',fontSize:14,color:'var(--text)'}}>
+      <AirParticles/>
+      <div style={{position:'relative',zIndex:1,display:'flex',flexDirection:'column',minHeight:'100vh',animation:'fadeIn .6s ease-out'}}>
 
       {/* Broadcast */}
       {broadcast && <BroadcastBanner msg={broadcast} onDismiss={()=>setBroadcast(null)}/>}
 
       {/* HEADER */}
-      <header ref={headerRef} style={{background:hdrBg,color:'#fff',boxShadow:'0 3px 12px rgba(0,0,0,.3)',position:'sticky',top:0,zIndex:200,transition:'background .3s'}}>
+      <header ref={headerRef} className="glass" style={{color:'var(--text)',borderBottom:`3px solid ${hdrBg}`,boxShadow:'0 3px 16px var(--shadow)',position:'sticky',top:0,zIndex:200,transition:'border-color .3s'}}>
 
-        {/* Row 1 — all buttons compact */}
-        <div style={{padding:'8px 10px',display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
-          <button onClick={()=>setSidebar(v=>!v)} style={bB('rgba(255,255,255,.18)')}>☰</button>
-          <button onClick={goHome} style={bB('rgba(255,255,255,.18)')}>🏠</button>
-          {sel&&<button onClick={goBack} style={bB('rgba(255,255,255,.18)')}>◀</button>}
-          <button onClick={()=>{setLoginRole(null);setSel(null);setSidebar(false);}} style={{...bB('rgba(255,255,255,.18)'),display:'flex',alignItems:'center',gap:4}} title="התנתק">
-            <span style={{fontSize:10,lineHeight:1}}>⬤</span>
-            <span>יציאה</span>
-          </button>
-          <span style={{fontWeight:'bold',fontSize:13,flexShrink:0,letterSpacing:.3}}>🔧 חלקי חילוף</span>
-          <span style={{fontSize:10,color:'rgba(255,255,255,.7)',flexShrink:0,fontFamily:'monospace'}}>
-            {now.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'})} {now.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}
+        {/* Row 1 — minimized: identity + search toggle + one consolidated menu */}
+        <div style={{padding:'9px 12px',display:'flex',alignItems:'center',gap:10}}>
+          <button onClick={()=>setSidebar(v=>!v)} className="hdr-btn tt tt-hdr" data-tt="פתח/סגור תפריט צד">☰</button>
+          <div style={{width:26,height:26,borderRadius:8,background:'linear-gradient(135deg,var(--primary),var(--cyan))',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0}}>🔧</div>
+          <span style={{fontWeight:'bold',fontSize:13,flexShrink:0,letterSpacing:.3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>חלקי חילוף</span>
+          <span className="tc-meta" style={{fontFamily:'monospace',flexShrink:0}}>
+            {now.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'})} · {now.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}
           </span>
-          {saving==='saving'&&<span style={{fontSize:11,color:'rgba(255,255,255,.8)',flexShrink:0}}>💾</span>}
-          {saving==='saved' &&<span style={{fontSize:11,color:'#a5d6a7',flexShrink:0}}>✓</span>}
-          {saving==='error' &&<button onClick={()=>alert('שגיאת שמירה: '+saveErr)} style={{fontSize:11,color:'#fff',background:'#e53935',border:'none',borderRadius:5,padding:'3px 7px',cursor:'pointer',flexShrink:0}}>⚠</button>}
+          {saving==='saving'&&<span className="tt tt-hdr" data-tt="שומר..." style={{fontSize:11,flexShrink:0}}>💾</span>}
+          {saving==='saved' &&<span className="tt tt-hdr" data-tt="נשמר" style={{fontSize:11,color:'var(--green)',flexShrink:0}}>✓</span>}
+          {saving==='error' &&<button onClick={()=>alert('שגיאת שמירה: '+saveErr)} style={{fontSize:11,color:'#fff',background:'var(--red)',border:'none',borderRadius:5,padding:'3px 7px',cursor:'pointer',flexShrink:0}}>⚠</button>}
 
-          {/* Spacer */}
           <div style={{flex:1}}/>
 
-          {/* Common buttons */}
-          <button onClick={()=>setShowCart(true)} style={{...bB('rgba(255,255,255,.18)'),position:'relative'}}>
-            🛒{cart.length>0&&<span style={{position:'absolute',top:-4,left:-4,background:'#e53935',color:'#fff',borderRadius:'50%',width:16,height:16,fontSize:10,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:'bold'}}>{cart.length}</span>}
-          </button>
-          <button onClick={()=>setShowHelp(true)} style={bB('rgba(255,255,255,.18)')}>❓</button>
-
-          {/* Notifications — editor + admin */}
-          {editor&&(
-            <button onClick={()=>openNotif()} style={{...bB('rgba(255,255,255,.18)'),position:'relative'}}>
-              🔔{notifCount>0&&<span style={{position:'absolute',top:-4,left:-4,background:'#e53935',color:'#fff',borderRadius:'50%',width:16,height:16,fontSize:10,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:'bold'}}>{notifCount}</span>}
-            </button>
+          {sel&&(
+            <button onClick={()=>setSearchOpen(v=>!v)} className={'hdr-btn tt tt-hdr'+(searchOpen?' on':'')} data-tt="חיפוש">🔍</button>
           )}
 
-          <button onClick={toggleDark} style={bB('rgba(255,255,255,.18)')}>{dark?'☀️':'🌙'}</button>
-          {/* Editor extras */}
-          {editor&&!admin&&<button onClick={()=>setShowNewsEditor(true)} style={bB('#00897b')}>📰</button>}
-          {editor&&!admin&&<button onClick={()=>setShowBroadcast(true)} style={bB('#e65100')}>📢</button>}
-          {editor&&!admin&&<button onClick={()=>setShowDashboard(true)} style={bB('rgba(255,255,255,.18)')}>📊</button>}
-          {editor&&<button onClick={()=>setShowXls(true)} style={bB('#00897b')}>📥</button>}
+          <div className="menu-wrap">
+            <button onClick={()=>setMenuOpen(v=>!v)} className={'hdr-btn tt tt-hdr'+(menuOpen?' on':'')} data-tt="תפריט">⋮</button>
+            {menuOpen&&<>
+              <div onClick={()=>setMenuOpen(false)} style={{position:'fixed',inset:0,zIndex:240}}/>
+              <div className="menu-panel" dir="rtl" style={{left:0,minWidth:250}}>
+                <button className="menu-item" onClick={()=>{goHome();setMenuOpen(false);}}><span className="ic">🏠</span>מסך הבית</button>
+                {sel&&<button className="menu-item" onClick={()=>{goBack();setMenuOpen(false);}}><span className="ic">◀</span>חזור אחורה</button>}
+                <button className="menu-item" onClick={()=>{setShowCompare(true);setMenuOpen(false);}}><span className="ic">⚖️</span>השוואת דגמים{compareList.length>0&&<span className="tc-meta" style={{marginRight:'auto'}}>({compareList.length})</span>}</button>
+                <button className="menu-item" onClick={()=>{setShowCart(true);setMenuOpen(false);}}><span className="ic">🛒</span>סל חלקים{cart.length>0&&<span className="tc-meta" style={{marginRight:'auto'}}>({cart.length})</span>}</button>
+                <button className="menu-item" onClick={()=>{setShowHelp(true);setMenuOpen(false);}}><span className="ic">❓</span>מדריך שימוש</button>
+                {editor&&<button className="menu-item" onClick={()=>{openNotif();setMenuOpen(false);}}><span className="ic">🔔</span>התראות{notifCount>0&&<span className="tc-meta" style={{marginRight:'auto'}}>({notifCount})</span>}</button>}
+                <button className="menu-item" onClick={()=>{toggleDark();}}><span className="ic">{dark?'☀️':'🌙'}</span>{dark?'מצב בהיר':'מצב כהה'}</button>
 
-          {/* Admin extras */}
-          {admin&&<button onClick={()=>setBrandMgr(true)}      style={bB('rgba(255,255,255,.18)')}>⚙</button>}
-          {admin&&<button onClick={()=>setShowBulkMove(true)}  style={bB('rgba(255,255,255,.18)')}>🔀</button>}
-          {admin&&<button onClick={()=>setShowBulkDel(true)}   style={bB('#b71c1c')}>🗑</button>}
-          {admin&&<button onClick={()=>{setShowHistory(true);fbGetHist().then(setHistData);}} style={bB('rgba(255,255,255,.18)')}>📋</button>}
-          {admin&&<button onClick={()=>setShowVersions(true)}  style={bB('rgba(255,255,255,.18)')}>🕐</button>}
-          {admin&&<button onClick={()=>setShowDashboard(true)} style={bB('rgba(255,255,255,.18)')}>📊</button>}
-          {admin&&<button onClick={()=>setShowNewsEditor(true)} style={bB('rgba(255,255,255,.18)')}>📰</button>}
-          {admin&&<button onClick={()=>setShowBroadcast(true)} style={bB('#e65100')}>📢</button>}
-          {admin&&<button onClick={()=>setShowUsersMgr(true)}  style={bB('#7b1fa2')}>👥</button>}
-          {admin&&<button onClick={()=>setChPwd(true)}         style={bB('rgba(255,255,255,.18)')}>🔑</button>}
-          {admin&&<button onClick={expXLS}                     style={bB('#2e7d32')}>📊</button>}
-          {admin&&<button onClick={expJSON}                    style={bB('rgba(255,255,255,.18)')}>💾</button>}
-          {admin&&<label  style={{...bB('rgba(255,255,255,.18)'),cursor:'pointer'}}>📂<input type="file" accept=".json" onChange={impFile} style={{display:'none'}}/></label>}
-        </div>
+                {editor&&<div className="menu-divider"/>}
+                {admin&&<button className="menu-item" onClick={()=>{setShowMakatReview(true);setMenuOpen(false);}}><span className="ic">✅</span>בדיקת מק"טים</button>}
+                {editor&&<button className="menu-item" onClick={()=>{setShowXls(true);setMenuOpen(false);}}><span className="ic">📥</span>ייבוא מ-Excel</button>}
+                {editor&&!admin&&<button className="menu-item" onClick={()=>{setShowNewsEditor(true);setMenuOpen(false);}}><span className="ic">📰</span>עריכת חדשות</button>}
+                {editor&&!admin&&<button className="menu-item" onClick={()=>{setShowBroadcast(true);setMenuOpen(false);}}><span className="ic">📢</span>שליחת הודעת מערכת</button>}
+                {editor&&!admin&&<button className="menu-item" onClick={()=>{setShowDashboard(true);setMenuOpen(false);}}><span className="ic">📊</span>דשבורד</button>}
 
-        {/* Row 2 — search full width */}
-        <div style={{padding:'0 10px 8px'}}>
-          <div style={{position:'relative'}}>
-            <input value={query} onChange={e=>setQuery(e.target.value)}
-              placeholder="🔍 חיפוש — דגם / מק&quot;ט / שם חלק..."
-              style={{width:'100%',padding:'8px 36px 8px 12px',borderRadius:22,border:'none',fontSize:14,outline:'none',color:'#222',background:'rgba(255,255,255,.93)',boxSizing:'border-box',boxShadow:'0 1px 4px rgba(0,0,0,.15)'}}/>
-            {query&&<button onClick={()=>setQuery('')} style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#888',fontSize:16}}>✕</button>}
+                {admin&&<>
+                  <div className="menu-divider"/>
+                  <button className="menu-item" onClick={()=>{setBrandMgr(true);setMenuOpen(false);}}><span className="ic">⚙</span>ניהול מותגים</button>
+                  <button className="menu-item" onClick={()=>{setShowDashboard(true);setMenuOpen(false);}}><span className="ic">📊</span>דשבורד</button>
+                  <button className="menu-item" onClick={()=>{setShowUsersMgr(true);setMenuOpen(false);}}><span className="ic">👥</span>ניהול משתמשים</button>
+                  <button className="menu-item" onClick={()=>{setChPwd(true);setMenuOpen(false);}}><span className="ic">🔑</span>שינוי סיסמה</button>
+                  <div className="menu-divider"/>
+                  <button className="menu-item" onClick={()=>{setShowNewsEditor(true);setMenuOpen(false);}}><span className="ic">📰</span>עריכת חדשות</button>
+                  <button className="menu-item" onClick={()=>{setShowBroadcast(true);setMenuOpen(false);}}><span className="ic">📢</span>הודעת מערכת</button>
+                  <button className="menu-item" onClick={()=>{setShowHistory(true);fbGetHist().then(setHistData);setMenuOpen(false);}}><span className="ic">📋</span>היסטוריה / גרסאות</button>
+                  <div className="menu-divider"/>
+                  <button className="menu-item" onClick={()=>{setShowBulkMove(true);setMenuOpen(false);}}><span className="ic">🔀</span>העברה גורפת</button>
+                  <button className="menu-item danger" onClick={()=>{setShowBulkDel(true);setMenuOpen(false);}}><span className="ic">🗑</span>מחיקה גורפת</button>
+                  <div className="menu-divider"/>
+                  <button className="menu-item" onClick={()=>{expXLS();setMenuOpen(false);}}><span className="ic">📊</span>ייצוא ל-Excel</button>
+                  <button className="menu-item" onClick={()=>{expJSON();setMenuOpen(false);}}><span className="ic">💾</span>ייצוא גיבוי (JSON)</button>
+                  <label className="menu-item" style={{cursor:'pointer'}}>
+                    <span className="ic">📂</span>ייבוא גיבוי (JSON)
+                    <input type="file" accept=".json" onChange={e=>{impFile(e);setMenuOpen(false);}} style={{display:'none'}}/>
+                  </label>
+                </>}
+
+                <div className="menu-divider"/>
+                <button className="menu-item danger" onClick={()=>{setLoginRole(null);setSel(null);setSidebar(false);setMenuOpen(false);}}><span className="ic">⬤</span>יציאה מהמערכת</button>
+              </div>
+            </>}
           </div>
         </div>
+
+        {/* Row 2 — compact search, revealed via the 🔍 toggle (Home has its own hero search) */}
+        {sel&&(
+          <div style={{maxHeight:searchOpen?80:0,overflow:'hidden',transition:'max-height .28s ease'}}>
+            <div style={{padding:'0 10px 8px'}}>
+              <div style={{position:'relative'}}>
+                <input value={query} onChange={e=>setQuery(e.target.value)} autoFocus={searchOpen}
+                  placeholder="🔍 חיפוש — דגם / מק&quot;ט / שם חלק..."
+                  style={{width:'100%',padding:'8px 36px 8px 12px',borderRadius:22,border:'none',fontSize:14,outline:'none',color:'#222',background:'rgba(255,255,255,.93)',boxSizing:'border-box',boxShadow:'0 1px 4px rgba(0,0,0,.15)'}}/>
+                {query&&<button onClick={()=>setQuery('')} style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#888',fontSize:16}}>✕</button>}
+                {query&&<SearchResultsPanel results={results} query={query} onClose={()=>setQuery('')} onSelect={r=>nav(r.b.id,r.c.id,r.m.id,query)}/>}
+              </div>
+            </div>
+          </div>
+        )}
       </header>
 
       {/* News Ticker — below header */}
@@ -443,49 +494,19 @@ function App() {
       {/* Tips — below news ticker */}
       <TipsBar tips={tips} canEdit={editor} onEdit={()=>setShowTipsEdit(true)}/>
 
-            {/* SEARCH DROPDOWN */}
-      {query&&(
-        <div style={{position:'fixed',top:(headerRef.current?.offsetHeight||80)+28+'px',right:0,left:0,zIndex:300,background:'var(--card)',boxShadow:'0 6px 20px rgba(0,0,0,.2)',maxHeight:'55vh',overflowY:'auto',animation:'fadeIn .1s'}}>
-          <div style={{padding:'8px 14px',borderBottom:'1px solid var(--border)',color:'var(--sub)',fontSize:12,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <span>{results.length} תוצאות עבור: <strong style={{color:'var(--text)'}}>{query}</strong></span>
-            <button onClick={()=>setQuery('')} style={{background:'#e53935',border:'none',borderRadius:5,color:'#fff',padding:'3px 10px',cursor:'pointer',fontSize:12}}>✕ סגור</button>
+      {/* Breadcrumb — always know where you are */}
+      {model&&(
+        <div style={{background:'var(--card)',borderBottom:'1px solid var(--border)',padding:'9px 14px'}}>
+          <div className="tc-container">
+            <Breadcrumb
+              onHome={goHome}
+              items={[
+                {label:brand.name, onClick:()=>setSidebar(true)},
+                {label:cat.name, onClick:()=>setSidebar(true)},
+                {label:model.name}
+              ]}
+            />
           </div>
-          {!results.length&&(
-            <div style={{padding:28,textAlign:'center'}}>
-              <div style={{fontSize:32,marginBottom:8}}>🔍</div>
-              <div style={{color:'var(--sub)',fontSize:14,fontWeight:'bold'}}>לא נמצאו תוצאות עבור "{query}"</div>
-              <div style={{color:'var(--sub)',fontSize:12,marginTop:6}}>נסה לחפש לפי שם דגם, מק"ט יצרן, מק"ט תדיראן או שם חלק</div>
-            </div>
-          )}
-          {results.map((r,i)=>(
-            <div key={i} onClick={()=>nav(r.b.id,r.c.id,r.m.id,query)}
-              style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid var(--border)',background:'var(--card)'}}
-              onMouseEnter={e=>e.currentTarget.style.background='var(--row2)'}
-              onMouseLeave={e=>e.currentTarget.style.background='var(--card)'}>
-              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:4}}>
-                <span style={{background:r.b.color,color:'#fff',padding:'2px 8px',borderRadius:4,fontSize:11,fontWeight:'bold'}}>{r.b.name}</span>
-                <span style={{fontWeight:'bold',color:'var(--text)',fontSize:14}}>{r.m.name}</span>
-                {r.ms&&<span style={{background:'#e3f2fd',color:'#1565c0',padding:'1px 7px',borderRadius:4,fontSize:11,fontWeight:'bold'}}>≡ {r.ms}</span>}
-                {r.m.synonyms?.filter(s=>s!==r.ms).map((s,si)=>(
-                  <span key={si} style={{background:'#f3e5f5',color:'#6a1b9a',padding:'1px 6px',borderRadius:4,fontSize:10}}>{s}</span>
-                ))}
-                <span style={{color:'var(--sub)',fontSize:11}}>{r.c.name}</span>
-                {r.ph.length>0&&<span style={{color:'#795548',fontSize:11,background:'#fff9c4',padding:'1px 6px',borderRadius:4}}>✦ {r.ph.length} חלקים</span>}
-              </div>
-              {r.ph.slice(0,3).map(p=>{
-                const he=(p.values.nameHe||'').trim(),tadPn=(p.values.tadPn||'').trim(),mfgPn=(p.values.mfgPn||'').trim();
-                return(
-                  <div key={p.id} style={{fontSize:11,color:'var(--sub)',paddingRight:8,marginBottom:2,display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
-                    {p.discontinued&&<span style={{background:'#e53935',color:'#fff',borderRadius:4,padding:'1px 6px',fontSize:10,fontWeight:'bold'}}>⛔ הופסק</span>}
-                    {he&&<span style={{color:'var(--text)',fontWeight:'500'}}>{he}</span>}
-                    {tadPn&&<span>מק"ט תדיראן: <strong style={{color:'#1565c0'}}>{tadPn}</strong></span>}
-                    {mfgPn&&<span>מק"ט יצרן: <strong>{mfgPn}</strong></span>}
-                  </div>
-                );
-              })}
-              {r.ph.length>3&&<div style={{fontSize:10,color:'var(--sub)',paddingRight:8}}>ועוד {r.ph.length-3} חלקים...</div>}
-            </div>
-          ))}
         </div>
       )}
 
@@ -493,7 +514,7 @@ function App() {
       <div style={{display:'flex',flex:1,overflow:'hidden',height:'calc(100vh - 56px)'}}>
 
         {/* SIDEBAR */}
-        <aside style={{width:sidebar?265:0,flexShrink:0,overflow:'hidden',transition:'width .25s',background:'var(--sidebar)',borderLeft:'1px solid var(--border)'}}>
+        <aside style={{width:sidebar?265:0,flexShrink:0,overflow:'hidden',transition:'width .25s',background:'var(--glass-bg)',backdropFilter:'blur(16px) saturate(160%)',WebkitBackdropFilter:'blur(16px) saturate(160%)',borderLeft:'1px solid var(--border)'}}>
           <div style={{width:265,overflowY:'auto',height:'100%',display:'flex',flexDirection:'column'}}>
             <div style={{padding:'8px 10px',borderBottom:'1px solid var(--border)',flexShrink:0}}>
               <div style={{position:'relative'}}>
@@ -504,31 +525,53 @@ function App() {
               </div>
             </div>
             <div style={{flex:1,overflowY:'auto'}}>
-              {data.brands.map(b=>(
-                <SidebarBrand key={b.id} brand={b} sel={sel} editor={editor} admin={admin}
+              {data.brands.filter(b=>editor||!b.hidden).map(b=>(
+                <SidebarBrand key={b.id} brand={b} sel={sel} editor={editor} admin={admin} canSeeHidden={editor}
                   favorites={favorites} onToggleFav={toggleFav} onNav={nav}
                   sidebarFilter={sidebarFilter}
-                  onAddModel={(cid,name)=>handleAddModel(b,cid,name)}
-                  onDelModel={async(cid,mid)=>{
+                  compareList={compareList}
+                  onToggleCompare={(bid,cid,mid)=>{
+                    setCompareList(p=>{
+                      const exists=p.some(x=>x.mid===mid);
+                      if(exists)return p.filter(x=>x.mid!==mid);
+                      if(p.length>=3){alert('ניתן להשוות עד 3 דגמים בו-זמנית');return p;}
+                      return[...p,{bid,cid,mid}];
+                    });
+                    setShowCompare(true);
+                  }}
+                  onAddModel={(cid,name,scid)=>handleAddModel(b,cid,name,scid)}
+                  onDelModel={async(cid,mid,scid)=>{
                     if(!confirm('למחוק?'))return;
                     const catObj=b.categories.find(c=>c.id===cid);
-                    const m=catObj?.models.find(m=>m.id===mid);
+                    const sourceModels=scid?(catObj?.subCategories||[]).find(sc=>sc.id===scid)?.models:catObj?.models;
+                    const m=sourceModels&&sourceModels.find(m=>m.id===mid);
                     const savedModel=m?JSON.parse(JSON.stringify(m)):null;
                     fbSaveSnapshot(data,loginLabel||loginRole,'לפני מחיקת דגם');
                     if(m) logAlert('delete',`נמחק דגם: ${m.name} (${b.name})`);
                     try{await db.collection('parts').doc(mid).delete();}catch{}
-                    mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,models:c.models.filter(m=>m.id!==mid)})})}));
-                    if(sel?.mid===mid)setSel(null);
+                    mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>{
+                      if(c.id!==cid)return c;
+                      if(scid)return{...c,subCategories:(c.subCategories||[]).map(sc=>sc.id!==scid?sc:{...sc,models:sc.models.filter(m=>m.id!==mid)})};
+                      return{...c,models:c.models.filter(m=>m.id!==mid)};
+                    })})}));
+                    if(sel&&sel.mid===mid)setSel(null);
                     if(savedModel){
-                      const newId=savedModel.id;changedMids.current.add(newId);
+                      changedMids.current.add(savedModel.id);
                       pushUndo(`ביטול מחיקת דגם: ${savedModel.name}`,()=>{
-                        mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,models:[...c.models,savedModel]})})}));
+                        mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>{
+                          if(c.id!==cid)return c;
+                          if(scid)return{...c,subCategories:(c.subCategories||[]).map(sc=>sc.id!==scid?sc:{...sc,models:[...sc.models,savedModel]})};
+                          return{...c,models:[...c.models,savedModel]};
+                        })})}));
                       });
                     }
                   }}
-                  onAddCat={name=>mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:[...bb.categories,{id:gid(),name,models:[]}]})}))}
+                  onAddCat={name=>mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:[...bb.categories,{id:gid(),name,models:[],subCategories:[]}]})}))}
                   onEditCat={(cid,name)=>mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,name})})}))}
                   onDelCat={cid=>{if(!confirm('למחוק?'))return;mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.filter(c=>c.id!==cid)})}));}}
+                  onAddSubCat={(cid,name)=>mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,subCategories:[...(c.subCategories||[]),{id:gid(),name,models:[]}]})})}))}
+                  onEditSubCat={(cid,scid,name)=>mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,subCategories:(c.subCategories||[]).map(sc=>sc.id!==scid?sc:{...sc,name})})})}))}
+                  onDelSubCat={(cid,scid)=>{if(!confirm('למחוק תת-קטגוריה?'))return;mut(d=>({...d,brands:d.brands.map(bb=>bb.id!==b.id?bb:{...bb,categories:bb.categories.map(c=>c.id!==cid?c:{...c,subCategories:(c.subCategories||[]).filter(sc=>sc.id!==scid)})})}));}}
                 />
               ))}
             </div>
@@ -539,7 +582,9 @@ function App() {
         {/* MAIN */}
         <main style={{flex:1,overflowY:'auto',padding:14,paddingBottom:44}}>
           {!model
-            ?<HomeScreen data={data} onNav={nav} recent={recent} favorites={favorites} onToggleFav={toggleFav} loginRole={loginRole} reports={reports} techRequests={techRequests} alerts={alerts}/>
+            ?<HomeScreen data={data} onNav={nav} recent={recent} favorites={favorites} onToggleFav={toggleFav} loginRole={loginRole} reports={reports} techRequests={techRequests} alerts={alerts}
+                onOpenSidebar={()=>setSidebar(true)} onOpenBrand={()=>setSidebar(true)}
+                query={query} setQuery={setQuery} results={results} canSeeHidden={editor}/>
             :<ModelView
                 key={model.id} brand={brand} cat={cat} model={model}
                 editor={editor} admin={admin} viewer={viewer} hq={sel?.hq||''}
@@ -585,6 +630,8 @@ function App() {
                 onDuplicate={()=>duplicateModel(brand.id,cat.id,model.id)}
                 onCopyPartsFrom={(sb,sc,sm)=>copyPartsFrom(sb,sc,sm,brand.id,cat.id,model.id)}
                 onAddToCart={addToCart}
+                reviewApprovals={makatApprovals}
+                onReviewApprovalsChange={n=>{setMakatApprovals(n);try{localStorage.setItem('makat_approvals',JSON.stringify(n));}catch{}}}
                 onReport={async text=>{await fbSaveReport({bid:brand.id,cid:cat.id,mid:model.id,modelName:model.name,brandName:brand.name,text,role:loginRole});alert('✅ הדיווח נשלח למנהל');}}
                 waDefaults={data.waDefaults||['nameHe','tadPn']}
               />
@@ -613,6 +660,11 @@ function App() {
 
       {/* PANELS */}
       {showCart     &&<CartPanel cart={cart} data={data} onRemove={removeFromCart} onClear={clearCart} onClose={()=>setShowCart(false)} waDefaults={data.waDefaults||['nameHe','tadPn']}/>}
+      {showCompare  &&<ComparePanel compareList={compareList} data={data} onClose={()=>setShowCompare(false)} onRemove={mid=>setCompareList(p=>p.filter(x=>x.mid!==mid))}/>}
+      {showMakatReview&&admin&&<MakatReviewPanel data={data} onClose={()=>setShowMakatReview(false)} approvals={makatApprovals}
+        onApprove={key=>{const n={...makatApprovals,[key]:'ok'};setMakatApprovals(n);try{localStorage.setItem('makat_approvals',JSON.stringify(n));}catch{}}}
+        onReject={key=>{const n={...makatApprovals,[key]:'fix'};setMakatApprovals(n);try{localStorage.setItem('makat_approvals',JSON.stringify(n));}catch{}}}
+      />}
       {showNotif    &&<NotificationsPanel
         missingAlerts={missingAlerts} reports={reports} techRequests={techRequests} alerts={alerts}
         data={data} initialTab={notifInitTab}
@@ -625,9 +677,6 @@ function App() {
         onClose={()=>setShowNotif(false)}/>}
       {showHelp     &&<HelpModal role={loginRole} onClose={()=>setShowHelp(false)}/>}
       {showDashboard&&<DashboardModal data={data} onClose={()=>setShowDashboard(false)}/>}
-      {showVersions &&<VersionHistoryModal
-        onRestore={restoredBrands=>{restoredBrands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>changedMids.current.add(m.id))));mut(d=>({...d,brands:restoredBrands}));setSel(null);}}
-        onClose={()=>setShowVersions(false)}/>}
       {showNewsEditor&&<NewsEditorModal onClose={()=>{setShowNewsEditor(false);fbGetNews().then(docs=>setNewsItems(docs.map(d=>d.text)));}}/>}
       {showBroadcast&&<BroadcastModal currentMsg={data.systemMsg||''} onClose={()=>setShowBroadcast(false)}/>}
       {showUsersMgr &&<UsersManagerModal data={data} onSave={users=>{mut(d=>({...d,users}));setShowUsersMgr(false);alert('✅ המשתמשים עודכנו');}} onClose={()=>setShowUsersMgr(false)}/>}
@@ -679,6 +728,7 @@ function App() {
       {showXls  &&<XlsImportModal data={data} onImport={importFromXls} onClose={()=>setShowXls(false)}/>}
       {showBulkMove&&<BulkMoveModal data={data} onMove={bulkMoveModels} onClose={()=>setShowBulkMove(false)}/>}
       {showBulkDel &&<BulkDeleteModal data={data} onDelete={bulkDeleteModels} onClose={()=>setShowBulkDel(false)}/>}
+      </div>
     </div>
   );
 }

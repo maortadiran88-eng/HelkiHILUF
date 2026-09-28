@@ -1,27 +1,51 @@
 // ══════════ LOGIN ══════════
 function LoginScreen({data,onLogin}){
-  const[pwd,setPwd]=useState('');const[err,setErr]=useState('');
+  const[pwd,setPwd]=useState('');const[err,setErr]=useState('');const[exiting,setExiting]=useState(false);
   const submit=()=>{
+    if(exiting)return;
     const users=data.users||DEFAULT_USERS;
     const match=users.find(u=>u.pass===pwd);
-    if(match){onLogin(match.role,match.id,match.label);}
+    if(match){
+      // Fade/scale the login screen out first, then hand off — so the
+      // transition into the home screen feels like one continuous screen
+      // instead of an abrupt swap.
+      setExiting(true);
+      setTimeout(()=>onLogin(match.role,match.id,match.label), 480);
+    }
     else setErr('סיסמה שגויה');
   };
   return(
-    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0f172a 0%,#1e3a5f 50%,#0f172a 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:20,direction:'rtl'}}>
-      <div style={{background:'#fff',borderRadius:20,padding:'40px 32px',maxWidth:400,width:'100%',textAlign:'center',boxShadow:'0 20px 60px rgba(0,0,0,.5)',animation:'slideUp .4s'}}>
-        <div style={{fontSize:56,marginBottom:12}}>🔧</div>
-        <div style={{fontWeight:'bold',fontSize:20,color:'#1565c0',marginBottom:6,lineHeight:1.4,whiteSpace:'pre-line'}}>{data.welcomeTitle||'ברוך הבא לקטלוג חלקי חילוף'}</div>
-        <div style={{fontSize:14,color:'#6b7280',marginBottom:28}}>{data.welcomeSub||'תחת המותג תדיראן'}</div>
-        <input type="password" value={pwd} onChange={e=>setPwd(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} placeholder="הזן סיסמת כניסה" autoFocus
-          style={{width:'100%',padding:'13px 16px',borderRadius:10,border:`2px solid ${err?'#e53935':'#e5e7eb'}`,fontSize:15,textAlign:'center',marginBottom:10,outline:'none',boxSizing:'border-box'}}/>
-        {err&&<div style={{color:'#e53935',fontSize:13,marginBottom:10,fontWeight:'bold'}}>{err}</div>}
-        <button onClick={submit} style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#1565c0,#1976d2)',color:'#fff',border:'none',borderRadius:10,fontSize:16,fontWeight:'bold',cursor:'pointer',marginBottom:22}}>
-          כניסה למערכת ←
-        </button>
-        <div style={{background:'#fff8e1',borderRadius:10,padding:'12px 14px',fontSize:12,color:'#795548',textAlign:'right',lineHeight:1.7,border:'1px solid #ffe082'}}>
-          ⚠️ {data.disclaimer||'מערכת זו מיועדת לשימוש עובדי תדיראן בלבד.'}
+    <div className="login-bg" style={{position:'fixed',inset:0,overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',padding:20,direction:'rtl'}}>
+      <AirParticles/>
+      <div style={{opacity:exiting?0:1,transform:exiting?'scale(1.04)':'scale(1)',transition:'opacity .45s ease, transform .45s ease',width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
+        {/* Blurred color blobs behind the glass card */}
+        <div aria-hidden className="login-blob-a" style={{position:'absolute',width:280,height:280,borderRadius:'50%',filter:'blur(70px)',opacity:.5,top:-70,right:-60}}/>
+        <div aria-hidden className="login-blob-b" style={{position:'absolute',width:240,height:240,borderRadius:'50%',filter:'blur(70px)',opacity:.5,bottom:-50,left:-40}}/>
+        <div aria-hidden className="login-blob-c" style={{position:'absolute',width:200,height:200,borderRadius:'50%',filter:'blur(70px)',opacity:.45,top:'42%',left:'28%'}}/>
+
+        <div style={{position:'relative',zIndex:1,width:'100%',maxWidth:380,animation:'slideUp .35s ease-out'}}>
+          <div className="glass" style={{borderRadius:'var(--radius-xl)',padding:'36px 30px 28px',textAlign:'center',boxShadow:'0 20px 50px var(--shadow2)'}}>
+            <div style={{marginBottom:22}}>
+              <div style={{fontWeight:900,fontSize:22,letterSpacing:2,color:'var(--text)'}}>TADI<span style={{color:'var(--primary)'}}>RAN</span></div>
+              <div style={{fontSize:9.5,letterSpacing:3,color:'var(--sub)',marginTop:2,fontWeight:700}}>P A R T S &nbsp; C A T A L O G</div>
+            </div>
+            <div style={{fontWeight:800,fontSize:20,color:'var(--text)',marginBottom:6,lineHeight:1.4,whiteSpace:'pre-line'}}>{data.welcomeTitle||'ברוך הבא לקטלוג חלקי חילוף'}</div>
+            <div style={{fontSize:13.5,color:'var(--sub)',marginBottom:28}}>{data.welcomeSub||'תחת המותג תדיראן'}</div>
+
+            <input type="password" value={pwd} onChange={e=>{setPwd(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&submit()} placeholder="הזן סיסמת כניסה" autoFocus
+              style={{width:'100%',padding:'13px 16px',borderRadius:12,border:`1.5px solid ${err?'var(--red)':'var(--border2)'}`,fontSize:15,textAlign:'center',marginBottom:err?8:16,outline:'none',boxSizing:'border-box',background:'var(--ibg)',color:'var(--inp)'}}/>
+            {err&&<div style={{color:'var(--red)',fontSize:12.5,marginBottom:14,fontWeight:700}}>⚠ {err}</div>}
+            <button onClick={submit} style={{width:'100%',padding:'13px',fontSize:15.5,marginBottom:22,borderRadius:12,border:'none',background:'var(--primary)',color:'#fff',fontWeight:800,cursor:'pointer',boxShadow:'0 8px 20px var(--cyan-glow)'}}>
+              כניסה למערכת ←
+            </button>
+
+
+          <div style={{background:'var(--orange-bg)',border:'1px solid var(--orange)',borderRadius:12,padding:'12px 14px',fontSize:12,color:'var(--orange)',textAlign:'right',lineHeight:1.7,fontWeight:500}}>
+            ⚠️ {data.disclaimer||'מערכת זו מיועדת לשימוש עובדי תדיראן בלבד.'}
+          </div>
         </div>
+        <div style={{textAlign:'center',color:'var(--sub)',fontSize:11.5,marginTop:16,fontWeight:500}}>Tadiran VRF · Professional Spare Parts Catalog</div>
+      </div>
       </div>
     </div>
   );
@@ -114,155 +138,219 @@ function TechSiteLink(){
 }
 
 // ══════════ HOME SCREEN ══════════
-function HomeScreen({data,onNav,recent,favorites,onToggleFav,loginRole,reports,techRequests,alerts}){
-  const total=data.brands.reduce((s,b)=>s+b.categories.reduce((ss,c)=>ss+c.models.length,0),0);
-  const totalParts=data.brands.reduce((s,b)=>s+b.categories.reduce((ss,c)=>ss+c.models.reduce((sss,m)=>sss+m.parts.length,0),0),0);
-  const[expandedBrand,setExpandedBrand]=useState(null);
+function HomeScreen({data,onNav,recent,favorites,onToggleFav,loginRole,reports,techRequests,alerts,onOpenSidebar,query,setQuery,onOpenBrand,results,canSeeHidden}){
+  const visBrands=data.brands.filter(b=>canSeeHidden||!b.hidden);
+  const total=visBrands.reduce((s,b)=>s+b.categories.reduce((ss,c)=>ss+c.models.filter(m=>canSeeHidden||!m.hidden).length,0),0);
+  const totalParts=visBrands.reduce((s,b)=>s+b.categories.reduce((ss,c)=>ss+c.models.filter(m=>canSeeHidden||!m.hidden).reduce((sss,m)=>sss+m.parts.length,0),0),0);
   const greeting=getGreeting(data.greetings);
 
   const fmtTime=ts=>{const diff=Math.floor((Date.now()-ts)/60000);if(diff<1)return'עכשיו';if(diff<60)return`לפני ${diff} דק'`;if(diff<1440)return`לפני ${Math.floor(diff/60)} שע'`;return new Date(ts).toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'});};
-  const recentModels=recent.slice(0,6).map(rv=>{const b=data.brands.find(x=>x.id===rv.bid);const c=b?.categories.find(x=>x.id===rv.cid);const m=c?.models.find(x=>x.id===rv.mid);if(!b||!c||!m)return null;return{b,c,m,ts:rv.ts};}).filter(Boolean);
-  const favModels=[];data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{if(favorites.has(m.id))favModels.push({b,c,m});})));
+  const recentModels=recent.slice(0,6).map(rv=>{const b=data.brands.find(x=>x.id===rv.bid);const c=b?.categories.find(x=>x.id===rv.cid);const m=c?.models.find(x=>x.id===rv.mid);if(!b||!c||!m)return null;if(!canSeeHidden&&(b.hidden||m.hidden))return null;return{b,c,m,ts:rv.ts};}).filter(Boolean);
+  const favModels=[];data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{if(favorites.has(m.id)&&(canSeeHidden||(!b.hidden&&!m.hidden)))favModels.push({b,c,m});})));
+
+  const brandStats=b=>{
+    let models=0,parts=0;
+    b.categories.forEach(c=>{const ms=c.models.filter(m=>canSeeHidden||!m.hidden);models+=ms.length;ms.forEach(m=>parts+=m.parts.length);});
+    return{models,parts};
+  };
 
   return(
-    <div style={{paddingBottom:44}}>
-      {/* Greeting */}
-      <div style={{background:'var(--card)',borderRadius:12,padding:'14px 18px',marginBottom:16,boxShadow:'0 1px 4px var(--shadow)',textAlign:'center'}}>
-        <span style={{fontWeight:'bold',fontSize:20,color:'var(--text)'}}>{greeting}</span>
-      </div>
+    <div className="tc-container" style={{paddingBottom:44}}>
 
-      {/* Stats */}
-      <div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
-        {[['❄️','דגמים',total,'#1565c0'],['🔩','חלקים',totalParts.toLocaleString(),'#2e7d32'],['🏷️','מותגים',data.brands.length,'#6a1b9a']].map(([ic,lb,v,col])=>(
-          <div key={lb} style={{background:'var(--card)',borderRadius:12,padding:'12px 16px',flex:'1 1 90px',boxShadow:'0 1px 4px var(--shadow)',display:'flex',alignItems:'center',gap:10}}>
-            <span style={{fontSize:26}}>{ic}</span>
-            <div><div style={{fontSize:18,fontWeight:'bold',color:col}}>{v}</div><div style={{fontSize:11,color:'var(--sub)'}}>{lb}</div></div>
+      {/* ── HERO ── */}
+      <div style={{position:'relative',textAlign:'center',padding:'34px 12px 30px'}}>
+        <div style={{position:'relative',zIndex:1}}>
+          <div className="tc-page-title" style={{fontSize:26,marginBottom:6}}>קטלוג חלקי חילוף VRF</div>
+          <div className="tc-body" style={{marginBottom:22,color:'var(--sub)'}}>חיפוש חלקי חילוף לפי מק"ט, דגם או שם חלק</div>
+
+          <div className="hero-search-wrap">
+            <input value={query} onChange={e=>setQuery(e.target.value)}
+              placeholder="🔍 חיפוש לפי מק&quot;ט, דגם או שם חלק..."
+              className="hero-search"/>
+            {query&&<button onClick={()=>setQuery('')} style={{position:'absolute',left:16,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'var(--sub)',fontSize:18}}>✕</button>}
+            {query&&<SearchResultsPanel results={results} query={query} onClose={()=>setQuery('')} onSelect={r=>onNav(r.b.id,r.c.id,r.m.id,query)}/>}
           </div>
-        ))}
+
+          <div style={{marginTop:18,fontSize:12.5,color:'var(--sub)'}}>{greeting}</div>
+        </div>
       </div>
 
+      {/* ── BRAND BENTO GRID ── */}
+      <Reveal style={{marginBottom:30}}>
+        <div className="tc-sub-title" style={{textAlign:'center',marginBottom:14}}>או בחר מותג</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:14,maxWidth:760,margin:'0 auto'}}>
+          {visBrands.map((b,bi)=>{
+            const st=brandStats(b);
+            return(
+              <TiltCard key={b.id} onClick={()=>(onOpenBrand?onOpenBrand(b.id):onOpenSidebar())}
+                style={{gridColumn:bi===0&&visBrands.length>1?'span 2':undefined,background:'var(--card)',border:'1px solid var(--border)',borderTop:`3px solid ${b.color}`,padding:'22px 18px',display:'flex',flexDirection:'column',alignItems:'center',gap:9,textAlign:'center',boxShadow:'0 2px 10px var(--shadow)'}}>
+                <div style={{position:'relative',zIndex:2,width:46,height:46,borderRadius:12,background:b.light||(b.color+'18'),display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,fontWeight:800,color:b.color}}>
+                  {b.name.slice(0,2)}
+                </div>
+                <div style={{position:'relative',zIndex:2,fontWeight:800,fontSize:15,color:'var(--text)'}}>{b.name}</div>
+                <div className="tc-meta" style={{position:'relative',zIndex:2}}>{st.models} דגמים · {st.parts.toLocaleString()} חלקים</div>
+              </TiltCard>
+            );
+          })}
+        </div>
+      </Reveal>
 
       {/* Favorites */}
       {favModels.length>0&&(
-        <div style={{marginBottom:16}}>
-          <div style={{fontWeight:'bold',fontSize:13,color:'var(--sub)',marginBottom:8}}>⭐ מועדפים</div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(148px,1fr))',gap:8}}>
+        <Reveal style={{marginBottom:22}}>
+          <div className="tc-sub-title" style={{marginBottom:10}}>⭐ מועדפים</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:10}}>
             {favModels.map(({b,c,m})=>(
-              <div key={m.id} style={{background:'var(--card)',borderRadius:10,padding:'11px 13px',cursor:'pointer',boxShadow:'0 1px 4px var(--shadow)',borderRight:`4px solid ${b.color}`,position:'relative',transition:'all .15s'}}
+              <div key={m.id} className="card-sm" style={{padding:'12px 14px',cursor:'pointer',borderRight:`3px solid ${b.color}`,position:'relative',transition:'transform .12s'}}
                 onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'} onMouseLeave={e=>e.currentTarget.style.transform=''}>
-                <button onClick={e=>{e.stopPropagation();onToggleFav(m.id);}} style={{position:'absolute',top:6,left:8,background:'none',border:'none',fontSize:14,cursor:'pointer'}}>⭐</button>
+                <button onClick={e=>{e.stopPropagation();onToggleFav(m.id);}} style={{position:'absolute',top:8,left:10,background:'none',border:'none',fontSize:14,cursor:'pointer'}}>⭐</button>
                 <div onClick={()=>onNav(b.id,c.id,m.id)}>
-                  <div style={{fontWeight:'bold',color:'var(--text)',fontSize:12,marginBottom:2,paddingLeft:18}}>{m.name}</div>
-                  <div style={{fontSize:10,color:'var(--sub)',marginBottom:3}}>{b.name} · {c.name}</div>
-                  <div style={{fontSize:11,color:b.color,fontWeight:'bold'}}>{m.parts.length} חלקים</div>
+                  <div style={{fontWeight:700,color:'var(--text)',fontSize:12.5,marginBottom:3,paddingLeft:18}}>{m.name}</div>
+                  <div className="tc-meta" style={{marginBottom:4}}>{b.name} · {c.name}</div>
+                  <div style={{fontSize:11.5,color:b.color,fontWeight:700}}>{m.parts.length} חלקים</div>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </Reveal>
       )}
 
       {/* Recently viewed */}
       {recentModels.length>0&&(
-        <div style={{marginBottom:16}}>
-          <div style={{fontWeight:'bold',fontSize:13,color:'var(--sub)',marginBottom:8}}>🕐 נצפו לאחרונה</div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(148px,1fr))',gap:8}}>
+        <Reveal style={{marginBottom:22}}>
+          <div className="tc-sub-title" style={{marginBottom:10}}>🕐 נצפו לאחרונה</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:10}}>
             {recentModels.map(({b,c,m,ts})=>(
-              <div key={m.id} onClick={()=>onNav(b.id,c.id,m.id)} style={{background:'var(--card)',borderRadius:10,padding:'11px 13px',cursor:'pointer',boxShadow:'0 1px 4px var(--shadow)',borderRight:`4px solid ${b.color}`,transition:'all .15s'}}
+              <div key={m.id} onClick={()=>onNav(b.id,c.id,m.id)} className="card-sm" style={{padding:'12px 14px',cursor:'pointer',borderRight:`3px solid ${b.color}`,transition:'transform .12s'}}
                 onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'} onMouseLeave={e=>e.currentTarget.style.transform=''}>
-                <div style={{fontSize:10,color:'var(--sub)',marginBottom:3}}>{fmtTime(ts)}</div>
-                <div style={{fontWeight:'bold',color:'var(--text)',fontSize:12,marginBottom:2}}>{m.name}</div>
-                <div style={{fontSize:10,color:'var(--sub)',marginBottom:3}}>{b.name} · {c.name}</div>
-                <div style={{fontSize:11,color:b.color,fontWeight:'bold'}}>{m.parts.length} חלקים</div>
+                <div className="tc-meta" style={{marginBottom:4}}>{fmtTime(ts)}</div>
+                <div style={{fontWeight:700,color:'var(--text)',fontSize:12.5,marginBottom:3}}>{m.name}</div>
+                <div className="tc-meta" style={{marginBottom:4}}>{b.name} · {c.name}</div>
+                <div style={{fontSize:11.5,color:b.color,fontWeight:700}}>{m.parts.length} חלקים</div>
               </div>
             ))}
           </div>
-        </div>
+        </Reveal>
       )}
 
-      {/* "Missing model?" — always after recent */}
-      <TechRequestBox loginRole={loginRole}/>
-
-      {/* Tech site link — single, always here */}
-      <TechSiteLink/>
-
-      {/* Brand list */}
-      <div style={{fontWeight:'bold',fontSize:13,color:'var(--sub)',marginBottom:10}}>📁 לפי מותג</div>
-      {data.brands.map(b=>{
-        const mc=b.categories.reduce((s,c)=>s+c.models.length,0);const isOpen=expandedBrand===b.id;
-        return(
-          <div key={b.id} style={{marginBottom:8,background:'var(--card)',borderRadius:12,overflow:'hidden',boxShadow:'0 1px 4px var(--shadow)'}}>
-            <div onClick={()=>setExpandedBrand(isOpen?null:b.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',cursor:'pointer',background:isOpen?b.color+'18':'var(--card)',borderBottom:isOpen?`2px solid ${b.color}`:'none'}}>
-              <div style={{background:b.color,color:'#fff',padding:'4px 14px',borderRadius:20,fontWeight:'bold',fontSize:14}}>{b.name}</div>
-              <span style={{color:'var(--sub)',fontSize:12}}>{mc} דגמים</span>
-              <span style={{marginRight:'auto',color:'var(--sub)',fontSize:13}}>{isOpen?'▲':'▼'}</span>
-            </div>
-            {isOpen&&(
-              <div style={{padding:'10px 16px 14px'}}>
-                {b.categories.filter(c=>c.models.length>0).map(c=>(
-                  <div key={c.id} style={{marginBottom:10}}>
-                    <div style={{fontSize:11,color:'var(--sub)',fontWeight:'bold',marginBottom:6}}>{c.name}</div>
-                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:6}}>
-                      {c.models.map(m=>(
-                        <div key={m.id} style={{padding:'8px 10px',borderRadius:8,border:`1px solid ${b.color}44`,cursor:'pointer',background:b.light+'88',transition:'background .1s',position:'relative'}}
-                          onMouseEnter={e=>e.currentTarget.style.background=b.color+'33'} onMouseLeave={e=>e.currentTarget.style.background=b.light+'88'}>
-                          <button onClick={ev=>{ev.stopPropagation();onToggleFav(m.id);}} style={{position:'absolute',top:4,left:6,background:'none',border:'none',fontSize:12,cursor:'pointer'}}>{favorites.has(m.id)?'⭐':'☆'}</button>
-                          <div onClick={()=>onNav(b.id,c.id,m.id)} style={{paddingLeft:18}}>
-                            <div style={{fontWeight:'bold',color:'var(--text)',fontSize:12,marginBottom:2}}>{m.name}</div>
-                            <div style={{fontSize:10,color:b.color,fontWeight:'bold'}}>{m.parts.length} חלקים</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+      {/* Quick stats strip */}
+      <Reveal style={{display:'flex',gap:10,marginBottom:22,flexWrap:'wrap',justifyContent:'center'}}>
+        {[['❄️','דגמים',total],['🔩','חלקים',totalParts.toLocaleString()],['🏷️','מותגים',data.brands.length]].map(([ic,lb,v])=>(
+          <div key={lb} style={{display:'flex',alignItems:'center',gap:7,color:'var(--sub)',fontSize:12.5}}>
+            <span>{ic}</span><strong style={{color:'var(--text)'}}>{v}</strong><span>{lb}</span>
           </div>
-        );
-      })}
+        ))}
+      </Reveal>
+
+      <TechRequestBox loginRole={loginRole}/>
+      <TechSiteLink/>
     </div>
   );
 }
 
 // ══════════ SIDEBAR BRAND ══════════
-function SidebarBrand({brand,sel,editor,admin,favorites,onToggleFav,onNav,onAddModel,onDelModel,onAddCat,onEditCat,onDelCat,sidebarFilter}){
-  const[open,setOpen]=useState(false);const[openCats,setOpenCats]=useState({});
+function SidebarBrand({brand,sel,editor,admin,canSeeHidden,favorites,onToggleFav,onNav,onAddModel,onDelModel,onAddCat,onEditCat,onDelCat,onAddSubCat,onEditSubCat,onDelSubCat,sidebarFilter,compareList,onToggleCompare}){
+  const[open,setOpen]=useState(false);const[openCats,setOpenCats]=useState({});const[openSubs,setOpenSubs]=useState({});
   const[addingMod,setAddingMod]=useState(null);const[newModName,setNewModName]=useState('');
   const[editCat,setEditCat]=useState(null);const[addingCat,setAddingCat]=useState(false);const[newCatName,setNewCatName]=useState('');
+  const[addingSub,setAddingSub]=useState(null);const[newSubName,setNewSubName]=useState('');const[editSub,setEditSub]=useState(null);
   const modRef=useRef();
 
-  useEffect(()=>{if(sel?.bid===brand.id){setOpen(true);setOpenCats(p=>({...p,[sel.cid]:true}));}},[sel?.bid,sel?.cid]);
+  useEffect(()=>{if(sel?.bid===brand.id){setOpen(true);setOpenCats(p=>({...p,[sel.cid]:true}));if(sel.scid)setOpenSubs(p=>({...p,[sel.scid]:true}));}},[sel?.bid,sel?.cid,sel?.scid]);
   useEffect(()=>{
     if(!sidebarFilter)return;
     const q=sidebarFilter.toLowerCase();
-    const modelMatches=m=>m.name.toLowerCase().includes(q)||(m.synonyms||[]).some(s=>s.toLowerCase().includes(q));
-    const hasMatch=brand.categories.some(c=>c.models.some(modelMatches));
-    if(hasMatch){setOpen(true);brand.categories.forEach(c=>{if(c.models.some(modelMatches))setOpenCats(p=>({...p,[c.id]:true}));});}
+    const mm=m=>m.name.toLowerCase().includes(q)||(m.synonyms||[]).some(s=>s.toLowerCase().includes(q));
+    const has=brand.categories.some(c=>c.models.some(mm)||(c.subCategories||[]).some(sc=>sc.models.some(mm)));
+    if(has){
+      setOpen(true);
+      brand.categories.forEach(c=>{
+        if(c.models.some(mm)||(c.subCategories||[]).some(sc=>sc.models.some(mm))){
+          setOpenCats(p=>({...p,[c.id]:true}));
+          (c.subCategories||[]).forEach(sc=>{if(sc.models.some(mm))setOpenSubs(p=>({...p,[sc.id]:true}));});
+        }
+      });
+    }
   },[sidebarFilter]);
 
   const toggleCat=id=>setOpenCats(p=>({...p,[id]:!p[id]}));
-  const doAddMod=cid=>{const n=newModName.trim();if(!n)return;onAddModel(cid,n);setNewModName('');setAddingMod(null);};
-  const startAdd=cid=>{setAddingMod(cid);setNewModName('');setTimeout(()=>modRef.current?.focus(),50);};
-  const allModelNames=brand.categories.flatMap(c=>c.models.map(m=>m.name));
-  const suggestions=newModName.trim().length>=1?allModelNames.filter(n=>n.toLowerCase().includes(newModName.toLowerCase())&&n.toLowerCase()!==newModName.toLowerCase()):[];
+  const toggleSub=id=>setOpenSubs(p=>({...p,[id]:!p[id]}));
+  const allModelNames=brand.categories.flatMap(c=>[...c.models.map(m=>m.name),...(c.subCategories||[]).flatMap(sc=>sc.models.map(m=>m.name))]);
   const isDuplicate=allModelNames.some(n=>n.toLowerCase()===newModName.trim().toLowerCase());
+  const suggestions=newModName.trim().length>=1?allModelNames.filter(n=>n.toLowerCase().includes(newModName.toLowerCase())&&n.toLowerCase()!==newModName.toLowerCase()):[];
+  const doAddMod=(cid,scid)=>{const n=newModName.trim();if(!n)return;onAddModel(cid,n,scid);setNewModName('');setAddingMod(null);};
+  const startAdd=(cid,scid)=>{setAddingMod(scid?cid+'__'+scid:cid);setNewModName('');setTimeout(()=>modRef.current?.focus(),50);};
+
+  const renderAddBox=(cid,scid)=>{
+    const key=scid?cid+'__'+scid:cid;
+    if(addingMod!==key)return null;
+    return(
+      <div style={{padding:'6px 10px',background:'var(--row2)',display:'flex',flexDirection:'column',gap:4,borderBottom:'1px solid var(--border)'}}>
+        <div style={{display:'flex',gap:6}}>
+          <input ref={modRef} value={newModName} onChange={e=>setNewModName(e.target.value)}
+            onKeyDown={e=>{if(e.key==='Enter'&&!isDuplicate)doAddMod(cid,scid);if(e.key==='Escape'){setAddingMod(null);setNewModName('');}}}
+            placeholder="שם הדגם..."
+            style={{flex:1,border:`1px solid ${isDuplicate?'#e53935':'var(--border)'}`,borderRadius:4,padding:'5px 8px',fontSize:12,color:'var(--inp)',background:'var(--ibg)'}}/>
+          <button onClick={()=>{if(!isDuplicate)doAddMod(cid,scid);}} disabled={isDuplicate}
+            style={{background:isDuplicate?'#aaa':brand.color,color:'#fff',border:'none',borderRadius:4,padding:'5px 10px',cursor:isDuplicate?'not-allowed':'pointer',fontSize:12}}>הוסף</button>
+          <button onClick={()=>{setAddingMod(null);setNewModName('');}} style={{background:'var(--border)',border:'none',borderRadius:4,padding:'5px 8px',cursor:'pointer',fontSize:12,color:'var(--text)'}}>✕</button>
+        </div>
+        {isDuplicate&&<div style={{fontSize:11,color:'#e53935',fontWeight:'bold'}}>⚠️ דגם בשם זה כבר קיים!</div>}
+        {suggestions.length>0&&!isDuplicate&&(
+          <div style={{background:'#fff',border:'1px solid var(--border)',borderRadius:6,overflow:'hidden',maxHeight:120,overflowY:'auto'}}>
+            {suggestions.slice(0,5).map(s=>(
+              <div key={s} onClick={()=>setNewModName(s)} style={{padding:'5px 10px',cursor:'pointer',fontSize:12,color:'var(--text)',borderBottom:'1px solid var(--border)'}}
+                onMouseEnter={e=>e.currentTarget.style.background='var(--row2)'} onMouseLeave={e=>e.currentTarget.style.background=''}>🔍 {s}</div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderModelRow=(m,cid,scid)=>{
+    const inCompare=compareList&&compareList.some(x=>x.mid===m.id);
+    return(
+      <div key={m.id} style={{display:'flex',alignItems:'center',borderBottom:'1px solid var(--border)'}}>
+        <div onClick={()=>onNav(brand.id,cid,m.id,scid)}
+          style={{flex:1,padding:'8px 10px 8px 26px',cursor:'pointer',fontSize:13,color:sel?.mid===m.id?brand.color:'var(--text)',fontWeight:sel?.mid===m.id?'bold':'normal',background:sel?.mid===m.id?brand.light+'88':'transparent',borderRight:sel?.mid===m.id?`3px solid ${brand.color}`:'3px solid transparent',opacity:m.hidden?0.6:1}}>
+          {m.hidden && <span title="מוסתר מצופים" style={{fontSize:11,marginLeft:4}}>🙈</span>}
+          {m.name}
+          {m.synonyms?.length>0&&<div style={{fontSize:10,color:'var(--sub)',marginTop:2}}>{m.synonyms.join(' | ')}</div>}
+          {sidebarFilter&&(m.synonyms||[]).some(s=>s.toLowerCase().includes(sidebarFilter.toLowerCase()))&&!(m.name.toLowerCase().includes(sidebarFilter.toLowerCase()))&&(
+            <div style={{fontSize:10,color:'#7b1fa2',marginTop:2,fontWeight:'bold'}}>≡ {(m.synonyms||[]).filter(s=>s.toLowerCase().includes(sidebarFilter.toLowerCase())).join(', ')}</div>
+          )}
+        </div>
+        {onToggleCompare&&(
+          <button onClick={()=>onToggleCompare(brand.id,cid,m.id)} title={inCompare?'הסר מהשוואה':'הוסף להשוואה'}
+            style={{background:'none',border:'none',fontSize:14,cursor:'pointer',padding:'0 3px',color:inCompare?'#e65100':'var(--sub)',fontWeight:'bold'}}>
+            {inCompare?'⊖':'⊕'}
+          </button>
+        )}
+        <button onClick={()=>onToggleFav(m.id)} style={{background:'none',border:'none',fontSize:13,cursor:'pointer',padding:'0 4px'}}>{favorites.has(m.id)?'⭐':'☆'}</button>
+        {admin&&<button onClick={()=>onDelModel(cid,m.id,scid)} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13,padding:'0 8px'}}>🗑</button>}
+      </div>
+    );
+  };
 
   return(
     <div style={{borderBottom:'1px solid var(--border)'}}>
       <div onClick={()=>setOpen(v=>!v)} style={{padding:'11px 14px',background:brand.color,color:'#fff',display:'flex',alignItems:'center',cursor:'pointer',userSelect:'none',gap:6}}>
         <span style={{flex:1,fontWeight:'bold',fontSize:14}}>{brand.name}</span>
+        {brand.hidden && <span title="מותג מוסתר מצופים" style={{fontSize:11,opacity:.9}}>🙈</span>}
         <span style={{fontSize:11,opacity:.8}}>{open?'▲':'▼'}</span>
       </div>
       {open&&<>
         {brand.categories.map(c=>{
           const q=sidebarFilter?sidebarFilter.toLowerCase():'';
-          const modelMatches=m=>!q||m.name.toLowerCase().includes(q)||(m.synonyms||[]).some(s=>s.toLowerCase().includes(q));
-          const visibleModels=sidebarFilter?c.models.filter(modelMatches):c.models;
-          if(sidebarFilter&&!visibleModels.length)return null;
+          const mm=m=>!q||m.name.toLowerCase().includes(q)||(m.synonyms||[]).some(s=>s.toLowerCase().includes(q));
+          const visibleModels=(sidebarFilter?c.models.filter(mm):c.models).filter(m=>canSeeHidden||!m.hidden);
+          const subCats=c.subCategories||[];
+          const visibleSubs=sidebarFilter?subCats.filter(sc=>sc.models.some(mm)):subCats;
+          if(sidebarFilter&&!visibleModels.length&&!visibleSubs.length)return null;
           return(
             <div key={c.id}>
-              <div style={{display:'flex',alignItems:'center',background:'var(--row2)',borderBottom:'1px solid var(--border)',minHeight:36}}>
+              <div style={{display:'flex',alignItems:'center',background:'rgba(127,140,165,.14)',borderBottom:'1px solid var(--border)',minHeight:36}}>
                 {editCat?.id===c.id&&admin
                   ?<div style={{flex:1,display:'flex',gap:4,padding:'4px 8px'}}>
                      <input value={editCat.name} autoFocus onChange={e=>setEditCat({id:c.id,name:e.target.value})}
@@ -277,53 +365,67 @@ function SidebarBrand({brand,sel,editor,admin,favorites,onToggleFav,onNav,onAddM
                 }
                 {admin&&editCat?.id!==c.id&&(
                   <div style={{display:'flex',flexShrink:0,paddingLeft:4}}>
-                    <button onClick={e=>{e.stopPropagation();startAdd(c.id);}} style={{background:'none',border:'none',color:brand.color,cursor:'pointer',fontSize:20,fontWeight:'bold',padding:'2px 6px',lineHeight:1}}>+</button>
+                    <button onClick={e=>{e.stopPropagation();startAdd(c.id,null);}} title="הוסף דגם" style={{background:'none',border:'none',color:brand.color,cursor:'pointer',fontSize:20,fontWeight:'bold',padding:'2px 6px',lineHeight:1}}>+</button>
+                    <button onClick={e=>{e.stopPropagation();setAddingSub(c.id);setNewSubName('');}} title="הוסף תת-קטגוריה" style={{background:'none',border:'none',color:'#7b1fa2',cursor:'pointer',fontSize:14,padding:'2px 4px'}}>📂</button>
                     <button onClick={e=>{e.stopPropagation();setEditCat({id:c.id,name:c.name});}} style={{background:'none',border:'none',color:'var(--sub)',cursor:'pointer',fontSize:13,padding:'2px 4px'}}>✏</button>
                     <button onClick={e=>{e.stopPropagation();onDelCat(c.id);}} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13,padding:'2px 5px'}}>🗑</button>
                   </div>
                 )}
                 {editor&&!admin&&editCat?.id!==c.id&&(
-                  <button onClick={e=>{e.stopPropagation();startAdd(c.id);}} style={{background:'none',border:'none',color:brand.color,cursor:'pointer',fontSize:20,fontWeight:'bold',padding:'2px 8px',lineHeight:1}}>+</button>
+                  <button onClick={e=>{e.stopPropagation();startAdd(c.id,null);}} style={{background:'none',border:'none',color:brand.color,cursor:'pointer',fontSize:20,fontWeight:'bold',padding:'2px 8px',lineHeight:1}}>+</button>
                 )}
               </div>
+              {admin&&addingSub===c.id&&(
+                <div style={{padding:'6px 10px',background:'#f3e5f5',display:'flex',gap:6,borderBottom:'1px solid var(--border)'}}>
+                  <input value={newSubName} autoFocus onChange={e=>setNewSubName(e.target.value)}
+                    onKeyDown={e=>{if(e.key==='Enter'&&newSubName.trim()){onAddSubCat(c.id,newSubName.trim());setNewSubName('');setAddingSub(null);}if(e.key==='Escape')setAddingSub(null);}}
+                    placeholder="שם תת-קטגוריה..."
+                    style={{flex:1,border:'1px solid #ce93d8',borderRadius:4,padding:'5px 8px',fontSize:12,color:'var(--inp)',background:'var(--ibg)'}}/>
+                  <button onClick={()=>{if(newSubName.trim()){onAddSubCat(c.id,newSubName.trim());setNewSubName('');setAddingSub(null);}}} style={{background:'#7b1fa2',color:'#fff',border:'none',borderRadius:4,padding:'5px 10px',cursor:'pointer',fontSize:12}}>הוסף</button>
+                  <button onClick={()=>setAddingSub(null)} style={{background:'var(--border)',border:'none',borderRadius:4,padding:'5px 8px',cursor:'pointer',fontSize:12,color:'var(--text)'}}>✕</button>
+                </div>
+              )}
               {(openCats[c.id]||sidebarFilter)&&<>
-                {addingMod===c.id&&(
-                  <div style={{padding:'6px 10px',background:'var(--row2)',display:'flex',flexDirection:'column',gap:4,borderBottom:'1px solid var(--border)'}}>
-                    <div style={{display:'flex',gap:6}}>
-                      <input ref={modRef} value={newModName} onChange={e=>setNewModName(e.target.value)}
-                        onKeyDown={e=>{if(e.key==='Enter'&&!isDuplicate)doAddMod(c.id);if(e.key==='Escape'){setAddingMod(null);setNewModName('');}}}
-                        placeholder="שם הדגם..."
-                        style={{flex:1,border:`1px solid ${isDuplicate?'#e53935':'var(--border)'}`,borderRadius:4,padding:'5px 8px',fontSize:12,color:'var(--inp)',background:'var(--ibg)'}}/>
-                      <button onClick={()=>{if(!isDuplicate)doAddMod(c.id);}} disabled={isDuplicate}
-                        style={{background:isDuplicate?'#aaa':brand.color,color:'#fff',border:'none',borderRadius:4,padding:'5px 10px',cursor:isDuplicate?'not-allowed':'pointer',fontSize:12}}>הוסף</button>
-                      <button onClick={()=>{setAddingMod(null);setNewModName('');}} style={{background:'var(--border)',border:'none',borderRadius:4,padding:'5px 8px',cursor:'pointer',fontSize:12,color:'var(--text)'}}>✕</button>
-                    </div>
-                    {isDuplicate&&<div style={{fontSize:11,color:'#e53935',fontWeight:'bold'}}>⚠️ דגם בשם זה כבר קיים!</div>}
-                    {suggestions.length>0&&!isDuplicate&&(
-                      <div style={{background:'#fff',border:'1px solid var(--border)',borderRadius:6,overflow:'hidden',maxHeight:120,overflowY:'auto'}}>
-                        {suggestions.slice(0,5).map(s=>(
-                          <div key={s} onClick={()=>setNewModName(s)} style={{padding:'5px 10px',cursor:'pointer',fontSize:12,color:'var(--text)',borderBottom:'1px solid var(--border)'}}
-                            onMouseEnter={e=>e.currentTarget.style.background='var(--row2)'} onMouseLeave={e=>e.currentTarget.style.background=''}>🔍 {s}</div>
-                        ))}
+                {renderAddBox(c.id,null)}
+                {visibleModels.map(m=>renderModelRow(m,c.id,null))}
+                {!visibleModels.length&&!sidebarFilter&&!subCats.length&&<div style={{padding:'7px 26px',color:'var(--sub)',fontSize:12}}>אין דגמים</div>}
+                {(sidebarFilter?visibleSubs:subCats).map(sc=>{
+                  const scModels=(sidebarFilter?sc.models.filter(mm):sc.models).filter(m=>canSeeHidden||!m.hidden);
+                  if(sidebarFilter&&!scModels.length)return null;
+                  return(
+                    <div key={sc.id}>
+                      <div style={{display:'flex',alignItems:'center',background:'#f3e5f511',borderBottom:'1px solid var(--border)',minHeight:32,paddingRight:12}}>
+                        {editSub?.id===sc.id&&admin
+                          ?<div style={{flex:1,display:'flex',gap:4,padding:'4px 8px'}}>
+                             <input value={editSub.name} autoFocus onChange={e=>setEditSub({id:sc.id,name:e.target.value})}
+                               onKeyDown={e=>{if(e.key==='Enter'){onEditSubCat(c.id,sc.id,editSub.name);setEditSub(null);}if(e.key==='Escape')setEditSub(null);}}
+                               style={{flex:1,border:'1px solid #ce93d8',borderRadius:4,padding:'3px 6px',fontSize:11,color:'var(--inp)',background:'var(--ibg)'}}/>
+                             <button onClick={()=>{onEditSubCat(c.id,sc.id,editSub.name);setEditSub(null);}} style={{background:'#7b1fa2',color:'#fff',border:'none',borderRadius:4,padding:'2px 8px',cursor:'pointer',fontSize:11}}>✓</button>
+                             <button onClick={()=>setEditSub(null)} style={{background:'var(--border)',border:'none',borderRadius:4,padding:'2px 6px',cursor:'pointer',fontSize:11,color:'var(--text)'}}>✕</button>
+                           </div>
+                          :<div onClick={()=>toggleSub(sc.id)} style={{flex:1,padding:'6px 8px 6px 20px',cursor:'pointer',color:'#7b1fa2',fontSize:12,userSelect:'none',display:'flex',alignItems:'center',gap:4}}>
+                             <span>📂</span><span style={{flex:1,fontWeight:'600'}}>{sc.name}</span><span style={{fontSize:10}}>{openSubs[sc.id]?'▲':'▼'}</span>
+                           </div>
+                        }
+                        {admin&&editSub?.id!==sc.id&&(
+                          <div style={{display:'flex',flexShrink:0,paddingLeft:4}}>
+                            <button onClick={e=>{e.stopPropagation();startAdd(c.id,sc.id);}} style={{background:'none',border:'none',color:brand.color,cursor:'pointer',fontSize:18,fontWeight:'bold',padding:'2px 5px',lineHeight:1}}>+</button>
+                            <button onClick={e=>{e.stopPropagation();setEditSub({id:sc.id,name:sc.name});}} style={{background:'none',border:'none',color:'var(--sub)',cursor:'pointer',fontSize:12,padding:'2px 4px'}}>✏</button>
+                            <button onClick={e=>{e.stopPropagation();onDelSubCat(c.id,sc.id);}} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:12,padding:'2px 5px'}}>🗑</button>
+                          </div>
+                        )}
+                        {editor&&!admin&&editSub?.id!==sc.id&&(
+                          <button onClick={e=>{e.stopPropagation();startAdd(c.id,sc.id);}} style={{background:'none',border:'none',color:brand.color,cursor:'pointer',fontSize:18,fontWeight:'bold',padding:'2px 8px',lineHeight:1}}>+</button>
+                        )}
                       </div>
-                    )}
-                  </div>
-                )}
-                {visibleModels.map(m=>(
-                  <div key={m.id} style={{display:'flex',alignItems:'center',borderBottom:'1px solid var(--border)'}}>
-                    <div onClick={()=>onNav(brand.id,c.id,m.id)}
-                      style={{flex:1,padding:'8px 10px 8px 26px',cursor:'pointer',fontSize:13,color:sel?.mid===m.id?brand.color:'var(--text)',fontWeight:sel?.mid===m.id?'bold':'normal',background:sel?.mid===m.id?brand.light+'88':'transparent',borderRight:sel?.mid===m.id?`3px solid ${brand.color}`:'3px solid transparent'}}>
-                      {m.name}
-                      {m.synonyms?.length>0&&<div style={{fontSize:10,color:'var(--sub)',marginTop:2}}>{m.synonyms.join(' | ')}</div>}
-                      {sidebarFilter&&(m.synonyms||[]).some(s=>s.toLowerCase().includes(sidebarFilter.toLowerCase()))&&!(m.name.toLowerCase().includes(sidebarFilter.toLowerCase()))&&(
-                        <div style={{fontSize:10,color:'#7b1fa2',marginTop:2,fontWeight:'bold'}}>≡ {(m.synonyms||[]).filter(s=>s.toLowerCase().includes(sidebarFilter.toLowerCase())).join(', ')}</div>
-                      )}
+                      {(openSubs[sc.id]||sidebarFilter)&&<>
+                        {renderAddBox(c.id,sc.id)}
+                        {scModels.map(m=>renderModelRow(m,c.id,sc.id))}
+                        {!scModels.length&&!sidebarFilter&&<div style={{padding:'7px 36px',color:'var(--sub)',fontSize:11}}>אין דגמים</div>}
+                      </>}
                     </div>
-                    <button onClick={()=>onToggleFav(m.id)} style={{background:'none',border:'none',fontSize:13,cursor:'pointer',padding:'0 4px'}}>{favorites.has(m.id)?'⭐':'☆'}</button>
-                    {admin&&<button onClick={()=>onDelModel(c.id,m.id)} style={{background:'none',border:'none',color:'#e53935',cursor:'pointer',fontSize:13,padding:'0 8px'}}>🗑</button>}
-                  </div>
-                ))}
-                {!visibleModels.length&&!sidebarFilter&&<div style={{padding:'7px 26px',color:'var(--sub)',fontSize:12}}>אין דגמים</div>}
+                  );
+                })}
               </>}
             </div>
           );
@@ -342,6 +444,7 @@ function SidebarBrand({brand,sel,editor,admin,favorites,onToggleFav,onNav,onAddM
     </div>
   );
 }
+
 
 // ══════════ CART PANEL ══════════
 function CartPanel({cart,data,onRemove,onClear,onClose,waDefaults}){
