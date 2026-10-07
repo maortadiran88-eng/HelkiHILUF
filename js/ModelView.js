@@ -32,11 +32,10 @@ function ModelView({brand,cat,model,editor,admin,viewer,hq,data,favorites,onTogg
     if(!v) return;
     (navigator.clipboard?.writeText(v)||Promise.reject()).then(()=>{setCopiedId(key);setTimeout(()=>setCopiedId(c=>c===key?null:c),1400);}).catch(()=>alert('מק"ט: '+v));
   };
-  // A column's internal id can drift from what it's actually labeled (older
-  // models / imports sometimes reused ids), so match by the column's real
-  // displayed name first — that's what the person actually sees — and keep
-  // the id check only as a fallback for columns that still use the default ids.
-  const isPnCol = col => /מק["״׳]?ט/.test(col.name||'') || col.id==='tadPn' || col.id==='mfgPn';
+  // Driven purely by the column's current displayed name (not its internal
+  // id) — so typing "מק"ט" into a header turns the copy button on, and
+  // editing it back out turns it off again, with no hidden id-based override.
+  const isPnCol = col => /מק["״׳]?ט/.test(col.name||'');
 
   useEffect(() => { setSynIn(model.synonyms?.join(', ')||''); setNameInput(model.name); setEditingName(false); }, [model.id]);
   useEffect(() => {

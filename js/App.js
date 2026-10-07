@@ -88,14 +88,24 @@ function App() {
     setSaving('saving');
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
+      // Capture + clear BEFORE awaiting the write — any edit that comes in
+      // while this save is still in flight must land in a fresh Set, not the
+      // one we're about to mark "saved" (that was the source of the
+      // intermittent-save bug: edits made mid-save used to get silently
+      // wiped out once the in-flight save completed).
+      const midsToSave = changedMids.current;
+      changedMids.current = new Set();
       try {
-        await fbSave(data, changedMids.current);
-        changedMids.current = new Set();
+        await fbSave(data, midsToSave);
         saveCount.current++;
         if (saveCount.current % 5 === 0) fbSaveSnapshot(data, loginLabel||loginRole||'system', 'שמירה אוטומטית');
         setSaving('saved'); setSaveErr('');
         setTimeout(() => setSaving(''), 3000);
-      } catch(e) { setSaving('error'); setSaveErr(e.message||String(e)); }
+      } catch(e) {
+        // Put the ids back so the next successful save retries them instead of losing them
+        midsToSave.forEach(id => changedMids.current.add(id));
+        setSaving('error'); setSaveErr(e.message||String(e));
+      }
     }, 2500);
   }, [data, loaded]);
 
@@ -492,16 +502,19 @@ function App() {
 
         {/* Row 2 — compact search, revealed via the 🔍 toggle (Home has its own hero search) */}
         {sel&&(
-          <div style={{maxHeight:searchOpen?80:0,overflow:'hidden',transition:'max-height .28s ease'}}>
-            <div style={{padding:'0 10px 8px'}}>
-              <div style={{position:'relative'}}>
-                <input value={query} onChange={e=>setQuery(e.target.value)} autoFocus={searchOpen}
-                  placeholder="🔍 חיפוש — דגם / מק&quot;ט / שם חלק..."
-                  style={{width:'100%',padding:'8px 36px 8px 12px',borderRadius:22,border:'none',fontSize:14,outline:'none',color:'#222',background:'rgba(255,255,255,.93)',boxSizing:'border-box',boxShadow:'0 1px 4px rgba(0,0,0,.15)'}}/>
-                {query&&<button onClick={()=>setQuery('')} style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#888',fontSize:16}}>✕</button>}
-                {query&&<SearchResultsPanel results={results} query={query} onClose={()=>setQuery('')} onSelect={r=>nav(r.b.id,r.c.id,r.m.id,query)}/>}
+          <div style={{position:'relative'}}>
+            <div style={{maxHeight:searchOpen?60:0,overflow:'hidden',transition:'max-height .28s ease'}}>
+              <div style={{padding:'0 10px 8px'}}>
+                <div style={{position:'relative'}}>
+                  <input value={query} onChange={e=>setQuery(e.target.value)} autoFocus={searchOpen}
+                    placeholder="🔍 חיפוש — דגם / מק&quot;ט / שם חלק..."
+                    style={{width:'100%',padding:'8px 36px 8px 12px',borderRadius:22,border:'none',fontSize:14,outline:'none',color:'#222',background:'rgba(255,255,255,.93)',boxSizing:'border-box',boxShadow:'0 1px 4px rgba(0,0,0,.15)'}}/>
+                  {query&&<button onClick={()=>setQuery('')} style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#888',fontSize:16}}>✕</button>}
+                </div>
               </div>
             </div>
+            {/* Rendered outside the collapsing (overflow:hidden) box above, so results are never clipped */}
+            {searchOpen&&query&&<SearchResultsPanel results={results} query={query} onClose={()=>setQuery('')} onSelect={r=>nav(r.b.id,r.c.id,r.m.id,query)}/>}
           </div>
         )}
       </header>
