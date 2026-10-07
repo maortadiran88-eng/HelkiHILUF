@@ -229,14 +229,32 @@ function App() {
   const bulkDeleteModels = async sels => {
     if(!confirm(`למחוק ${sels.length} דגמים לצמיתות?`))return;
     fbSaveSnapshot(data, loginLabel||loginRole, `לפני מחיקת ${sels.length} דגמים`);
-    // Log each deleted model
+
+    // Build every Firestore operation (part-doc delete + alert log) up front,
+    // then send them as chunked db.batch() writes instead of firing one
+    // un-batched request per model — that per-model loop was what exhausted
+    // the write stream on larger selections.
+    const ops = [];
     sels.forEach(s => {
       const b=data.brands.find(x=>x.id===s.bid);
       const c=b?.categories.find(x=>x.id===s.cid);
       const m=c?.models.find(x=>x.id===s.mid);
-      if(m) logAlert('delete', `נמחק דגם: ${m.name} (${b?.name||''} / ${c?.name||''})`);
+      ops.push({type:'delete', ref:db.collection('parts').doc(s.mid)});
+      if(m) ops.push({type:'alert', ref:db.collection('alerts').doc(), data:{
+        type:'delete', text:`נמחק דגם: ${m.name} (${b?.name||''} / ${c?.name||''})`,
+        actor:loginLabel||loginRole, ts:firebase.firestore.FieldValue.serverTimestamp()
+      }});
     });
-    try{await Promise.all(sels.map(s=>db.collection('parts').doc(s.mid).delete().catch(()=>{})));}catch{}
+    const CHUNK = 450; // stay safely under Firestore's 500-operation batch limit
+    try {
+      for (let i=0; i<ops.length; i+=CHUNK) {
+        const batch = db.batch();
+        ops.slice(i,i+CHUNK).forEach(op => op.type==='delete' ? batch.delete(op.ref) : batch.set(op.ref, op.data));
+        await batch.commit();
+      }
+      fbGetAlerts().then(setAlerts);
+    } catch(e) { console.error('מחיקה מרובה — שגיאת כתיבה:', e); }
+
     mut(d=>({...d,brands:d.brands.map(b=>({...b,categories:b.categories.map(c=>({...c,models:c.models.filter(m=>!sels.some(s=>s.mid===m.id&&s.bid===b.id&&s.cid===c.id))}))}))}));
     if(sels.some(s=>s.mid===sel?.mid))setSel(null);
     logAction('מחיקה מרובה',{count:sels.length});
