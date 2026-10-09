@@ -58,6 +58,10 @@ function App() {
   const navStack     = useRef([]);
   const headerRef    = useRef(null);
   const saveCount    = useRef(0);
+  const saveInFlight = useRef(false);
+  const saveAgain    = useRef(false);
+  const latestData   = useRef(null);
+  const retryTimer   = useRef(null);
 
   const admin  = loginRole==='admin';
   const editor = loginRole==='editor' || loginRole==='admin';
@@ -82,31 +86,50 @@ function App() {
     }
   }, [loginRole]);
 
+  // Single-flight autosave: only ONE fbSave may be in flight at a time. If the
+  // network/backend is slow or backing off, further edits just flag "save
+  // again" instead of stacking more (large) writes onto Firestore's write
+  // stream — that pile-up is what ends in "resource-exhausted: Write stream
+  // exhausted maximum allowed queued writes".
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((_,rej) => setTimeout(() => {
+    const err = new Error('Firebase לא אישר את השמירה תוך '+Math.round(ms/1000)+' שניות (עומס/חסימה בצד השרת). אל תרענן עדיין — השינויים עדיין בזיכרון. לחץ אישור כדי לנסות שוב.');
+    err.nonRetryable = true; rej(err);
+  }, ms))]);
+  const runSave = async () => {
+    if (saveInFlight.current) { saveAgain.current = true; return; }
+    saveInFlight.current = true;
+    try {
+      do {
+        saveAgain.current = false;
+        setSaving('saving');
+        const snap = latestData.current;
+        // Capture + clear BEFORE awaiting — edits made mid-save go to a fresh Set
+        const midsToSave = changedMids.current;
+        changedMids.current = new Set();
+        try {
+          await withTimeout(fbSave(snap, midsToSave), 60000);
+          saveCount.current++;
+          if (saveCount.current % 5 === 0) fbSaveSnapshot(snap, loginLabel||loginRole||'system', 'שמירה אוטומטית');
+          clearTimeout(retryTimer.current);
+          setSaving('saved'); setSaveErr('');
+          setTimeout(() => setSaving(s => s==='saved' ? '' : s), 3000);
+        } catch(e) {
+          // Put the ids back so the next save retries them instead of losing them
+          midsToSave.forEach(id => changedMids.current.add(id));
+          setSaving('error'); setSaveErr(e.message||String(e));
+          if (!e.nonRetryable) { clearTimeout(retryTimer.current); retryTimer.current = setTimeout(runSave, 20000); }
+          break;
+        }
+      } while (saveAgain.current);
+    } finally { saveInFlight.current = false; }
+  };
   useEffect(() => {
     if (!loaded||!data) return;
+    latestData.current = data;
     if (firstLoad.current) { firstLoad.current=false; return; }
     setSaving('saving');
     clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      // Capture + clear BEFORE awaiting the write — any edit that comes in
-      // while this save is still in flight must land in a fresh Set, not the
-      // one we're about to mark "saved" (that was the source of the
-      // intermittent-save bug: edits made mid-save used to get silently
-      // wiped out once the in-flight save completed).
-      const midsToSave = changedMids.current;
-      changedMids.current = new Set();
-      try {
-        await fbSave(data, midsToSave);
-        saveCount.current++;
-        if (saveCount.current % 5 === 0) fbSaveSnapshot(data, loginLabel||loginRole||'system', 'שמירה אוטומטית');
-        setSaving('saved'); setSaveErr('');
-        setTimeout(() => setSaving(''), 3000);
-      } catch(e) {
-        // Put the ids back so the next successful save retries them instead of losing them
-        midsToSave.forEach(id => changedMids.current.add(id));
-        setSaving('error'); setSaveErr(e.message||String(e));
-      }
-    }, 2500);
+    saveTimer.current = setTimeout(runSave, 2500);
   }, [data, loaded]);
 
   const missingAlerts = useMemo(() => {
@@ -443,7 +466,7 @@ function App() {
           </span>
           {saving==='saving'&&<span className="tt tt-hdr" data-tt="שומר..." style={{fontSize:11,flexShrink:0}}>💾</span>}
           {saving==='saved' &&<span className="tt tt-hdr" data-tt="נשמר" style={{fontSize:11,color:'var(--green)',flexShrink:0}}>✓</span>}
-          {saving==='error' &&<button onClick={()=>alert('שגיאת שמירה: '+saveErr)} style={{fontSize:11,color:'#fff',background:'var(--red)',border:'none',borderRadius:5,padding:'3px 7px',cursor:'pointer',flexShrink:0}}>⚠</button>}
+          {saving==='error' &&<button onClick={()=>{alert('שגיאת שמירה: '+saveErr);runSave();}} style={{fontSize:11,color:'#fff',background:'var(--red)',border:'none',borderRadius:5,padding:'3px 7px',cursor:'pointer',flexShrink:0}}>⚠</button>}
 
           <div style={{flex:1}}/>
 

@@ -30,6 +30,11 @@ async function fbLoad() {
   return d;
 }
 
+// Firestore rejects any single document above ~1 MiB (1,048,576 bytes). Hebrew
+// text is 2 bytes/char, so measure real UTF-8 bytes, not string length.
+const FS_DOC_LIMIT = 1000000;
+function fsBytes(o){ try{ return new TextEncoder().encode(JSON.stringify(o)).length; }catch(e){ return 0; } }
+
 async function fbSave(data, mids) {
   const meta = {
     users: data.users || DEFAULT_USERS,
@@ -40,13 +45,27 @@ async function fbSave(data, mids) {
     tips:data.tips||[], greetings:data.greetings||null, systemMsg:data.systemMsg||null,
     brands:data.brands.map(b=>({...b,categories:b.categories.map(c=>({...c,models:c.models.map(m=>({id:m.id,name:m.name,hidden:m.hidden||false}))}))}))
   };
+  const metaBytes = fsBytes(meta);
+  console.info('[fbSave] meta '+Math.round(metaBytes/1024)+'KB · models to write: '+mids.size);
+  if (metaBytes > FS_DOC_LIMIT) {
+    const err = new Error('מסמך ה-meta גדול מדי ('+Math.round(metaBytes/1024)+'KB, מגבלת Firestore ~1MB) — כנראה בגלל דגמים בתת-קטגוריות שנשמרים בתוכו (כולל חלקים ותמונות). השמירה נעצרה כדי לא להעמיס על Firebase.');
+    err.nonRetryable = true; throw err;
+  }
   await db.collection('catalog').doc('meta').set({d:meta});
   const batch = db.batch();
+  const tooBig = []; let n = 0;
   data.brands.forEach(b=>b.categories.forEach(c=>c.models.forEach(m=>{
     if(!mids.has(m.id))return;
-    batch.set(db.collection('parts').doc(m.id),{parts:m.parts||[],images:m.images||[],columns:m.columns||DCOLS(),synonyms:m.synonyms||[],notes:m.notes||''});
+    const payload = {parts:m.parts||[],images:m.images||[],columns:m.columns||DCOLS(),synonyms:m.synonyms||[],notes:m.notes||''};
+    const bytes = fsBytes(payload);
+    if (bytes > FS_DOC_LIMIT) { tooBig.push(m.name+' ('+Math.round(bytes/1024)+'KB)'); return; }
+    batch.set(db.collection('parts').doc(m.id), payload); n++;
   })));
-  await batch.commit();
+  if (n) await batch.commit();
+  if (tooBig.length) {
+    const err = new Error('הדגמים הבאים גדולים מדי לשמירה (מעל ~1MB למסמך, לרוב בגלל תמונות/שרטוטים): '+tooBig.join(', ')+'. שאר השינויים נשמרו. הקטן או הסר תמונות מהדגמים האלה.');
+    err.nonRetryable = true; throw err;
+  }
 }
 
 // ── Activity log ──
@@ -109,10 +128,21 @@ async function fbGetBroadcast() {
 // ── Snapshots ──
 async function fbSaveSnapshot(data, actor, action) {
   try {
+    // A snapshot is the WHOLE catalog (every part + image) in one document. If
+    // it can't fit in a single Firestore document the server rejects it anyway —
+    // but only after we've pushed megabytes through the shared write stream,
+    // which starves/blocks the real saves queued behind it. Skip it instead.
+    const brandsJson = JSON.stringify(data.brands);
+    const bytes = new TextEncoder().encode(brandsJson).length;
+    if (bytes > FS_DOC_LIMIT) {
+      console.warn('[snapshot] דילוג: הקטלוג המלא ('+Math.round(bytes/1024)+'KB) גדול ממסמך Firestore בודד (~1MB), ולכן לא נשמר גיבוי גרסה.');
+      return;
+    }
     const col = db.collection('snapshots');
-    await col.add({actor,action,ts:firebase.firestore.FieldValue.serverTimestamp(),brands:JSON.stringify(data.brands)});
-    const all = await col.orderBy('ts','desc').get();
-    if (all.docs.length>10) await Promise.all(all.docs.slice(10).map(d=>d.ref.delete()));
+    await col.add({actor,action,ts:firebase.firestore.FieldValue.serverTimestamp(),brands:brandsJson});
+    // Only fetch the newest 11 (not every snapshot ever stored — each can be ~1MB)
+    const recent = await col.orderBy('ts','desc').limit(11).get();
+    if (recent.docs.length>10) await Promise.all(recent.docs.slice(10).map(d=>d.ref.delete()));
   } catch {}
 }
 async function fbGetSnapshots() {
